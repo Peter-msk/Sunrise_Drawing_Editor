@@ -121,3 +121,24 @@
 - `quality/BASELINE_REAL_VALIDATION.json` vs `quality/OPTIMIZED_REAL_RELEASE_VALIDATION.json`: 실물 DXF 기본/INSERT/추가 폴리라인/복원/줌 RGB 픽셀 해시 모두 일치, FHD PNG/JPG·25MP 타일 PNG 결과 파일 SHA-256 일치, 원본 해시 무변경.
 - 큰 원호 레이어 PDF 콘텐츠 해시 동일, 경로 명령 출력 최적화 검증. 실제 402MB에서 Windows GUI/Onefile/서명 **NOT RUN**.
 - 성능/메모리 측정과 한계: `THREE_PASS_DEEP_VALIDATION.md`.
+
+
+## PNG transparent RGBA stage / UI render refinement (2026-11-12)
+- Existing UI/UX Stage 2+3 baseline preserved. New changes to GUI, zoom policy, PNG export, and standalone QA.
+- Pure Python engine/test suite: 180/180 PASS (Python 3.13.5, Linux).
+- Small RGBA PNG and >12 MP tiled RGBA both produce true transparent page regions; painted white source geometry stays opaque.
+- Original opaque PNG/JPEG file-by-file SHA-256 identical to prior ZIP sample.
+- Windows PySide6 GUI 100–175% DPI, Windows onefile/signature, source OnMap PDFs provided only as screenshots: NOT RUN.
+- The test does NOT mean the actual user OnMap map's white painted page content has been removed. Only transparent page background is affected.
+
+
+## 온맵 PNG 외곽 흰 여백 제거 (2026-11-12 개발 후보)
+
+- **PNG** 기본 UI 선택: `투명 배경` + `흰 여백 제거`(각각 개별 선택 가능). JPG는 기존 불투명 전체 용지 출력 정책 유지.
+- 기존 `원본 자동`은 래스터 원본 밀도/벡터 300 DPI 유지; 여백 제거는 표시 내용의 **외곽 용지 영역만 제외**하며 원본 PDF/DXF 좌표나 내용은 수정하지 않음.
+- GUI 선택 여부와 별개로 Python API `OutputOptions()`는 `crop_margins=False`로 유지하여 기존 출력 호환성 보장.
+- 12MP 이하: 같은 원본 렌더링 픽셀에서 정확한 외곽 흰색 여백만 제거. 12MP 초과: 저메모리 미리보기로 영역을 정한 뒤 원래 전체 타일 픽셀을 스트리밍하여 필요한 픽셀만 PNG로 기록. 변형/리샘플링 없음.
+- 화면 내용이 불명확하거나 빈 도면이면 용지 전체 출력으로 안전하게 폴백. 흰색 지도 내부 객체, 도면 색상과 선폭을 임의 제거하지 않음.
+- 제공된 **실제 온맵 추출 PNG 8개**를 직접 검사: 모두 1416×2048/RGBA(alpha=255), 보이는 도면 범위 (113,195)-(1300,1673), 외곽 크롭 결과 1187×1478, 원본 범위 픽셀 동일.
+- **해당 도엽의 원본 온맵 PDF는 Library/Drive에서 확인되지 않아 PDF 실물의 OCG 렌더링 결과를 직접 검증했다고 주장하지 않음.** 원본 PNG를 임시 PDF에 배치한 대체 입력 시험과 프로그램 기존 PDF·DXF 테스트는 완료.
+- 자동 회귀 188/188 PASS; 기존 불투명 PNG/JPG SHA-256 동일; 실제 Windows PySide6·EXE·고DPI QA NOT RUN.

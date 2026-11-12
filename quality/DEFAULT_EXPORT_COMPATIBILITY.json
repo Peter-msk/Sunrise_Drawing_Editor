@@ -1,0 +1,15 @@
+{
+  "reference": "2026-11-12 UI/UX Stage2+3 source ZIP",
+  "after": "UI render PNG transparency improved",
+  "default_opaque_export_bytes_same": true,
+  "files": {
+    "before": {
+      "regression.png": "eabc2896860fc2d3e2bc610ed6247d42d94bb3142668e4789cd409af05912fd0",
+      "regression.jpg": "93bf63e8fceb1df1760cf355eb33c04e8c5e234ff552d2a8adef45e82c874c0b"
+    },
+    "after": {
+      "regression.png": "eabc2896860fc2d3e2bc610ed6247d42d94bb3142668e4789cd409af05912fd0",
+      "regression.jpg": "93bf63e8fceb1df1760cf355eb33c04e8c5e234ff552d2a8adef45e82c874c0b"
+    }
+  }
+}

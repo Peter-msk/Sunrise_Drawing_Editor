@@ -22,3 +22,31 @@ def file_add_status(*, added: int, duplicates: int, rejected: int) -> str:
     if rejected:
         parts.append(f'추가 실패 {rejected}개')
     return ' · '.join(parts) + (' · 원본 분석은 백그라운드 진행' if added else '')
+
+
+def zoom_factor_for_delta(angle_delta: int, pixel_delta: int = 0) -> float:
+    """Continuous pointer zoom; fractional wheel steps are not discarded."""
+    steps = angle_delta / 120 if angle_delta else pixel_delta / 240
+    steps = max(-6.0, min(6.0, steps))
+    return 1.12 ** steps
+
+
+def clamp_zoom_factor(current_scale: float, fit_scale: float, requested: float) -> float:
+    """Limit zoom in fit-relative units without truncating the gesture abruptly.
+
+    The lower bound of 5% keeps navigation usable; the upper bound permits
+    inspection of tiny linework. Both are independent of original PDF units.
+    """
+    if current_scale <= 0 or fit_scale <= 0 or requested <= 0:
+        return 1.0
+    lower, upper = fit_scale * 0.05, fit_scale * 128.0
+    # If fitInView or a previous desktop size left the view outside the new
+    # bounds, do not snap abruptly across the entire zoom range on one tick.
+    if current_scale >= upper:
+        # Resizing the window can move an already zoomed view beyond the new
+        # limit. Allow smooth inward motion, never snap back in one wheel tick.
+        return 1.0 if requested > 1 else requested
+    if current_scale <= lower:
+        return 1.0 if requested < 1 else requested
+    target = max(lower, min(upper, current_scale * requested))
+    return target / current_scale

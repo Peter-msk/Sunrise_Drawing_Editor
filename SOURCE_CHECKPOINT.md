@@ -41,3 +41,15 @@
 - Modified: `drawing_editor/core.py`, `drawing_editor/tiles.py`; new `tests/test_github_optimization.py`, benchmark and its isolated legacy writer in `quality`.
 - Source-based GitHub comparison / benchmarks / constraints: `GITHUB_PERFORMANCE_AUDIT.md`.
 - Latest engine tests: 92/92 PASS. Windows onefile build, UI and Authenticode: NOT RUN.
+
+
+## 온맵 PNG 외곽 흰 여백 제거 (2026-11-12 개발 후보)
+
+- **PNG** 기본 UI 선택: `투명 배경` + `흰 여백 제거`(각각 개별 선택 가능). JPG는 기존 불투명 전체 용지 출력 정책 유지.
+- 기존 `원본 자동`은 래스터 원본 밀도/벡터 300 DPI 유지; 여백 제거는 표시 내용의 **외곽 용지 영역만 제외**하며 원본 PDF/DXF 좌표나 내용은 수정하지 않음.
+- GUI 선택 여부와 별개로 Python API `OutputOptions()`는 `crop_margins=False`로 유지하여 기존 출력 호환성 보장.
+- 12MP 이하: 같은 원본 렌더링 픽셀에서 정확한 외곽 흰색 여백만 제거. 12MP 초과: 저메모리 미리보기로 영역을 정한 뒤 원래 전체 타일 픽셀을 스트리밍하여 필요한 픽셀만 PNG로 기록. 변형/리샘플링 없음.
+- 화면 내용이 불명확하거나 빈 도면이면 용지 전체 출력으로 안전하게 폴백. 흰색 지도 내부 객체, 도면 색상과 선폭을 임의 제거하지 않음.
+- 제공된 **실제 온맵 추출 PNG 8개**를 직접 검사: 모두 1416×2048/RGBA(alpha=255), 보이는 도면 범위 (113,195)-(1300,1673), 외곽 크롭 결과 1187×1478, 원본 범위 픽셀 동일.
+- **해당 도엽의 원본 온맵 PDF는 Library/Drive에서 확인되지 않아 PDF 실물의 OCG 렌더링 결과를 직접 검증했다고 주장하지 않음.** 원본 PNG를 임시 PDF에 배치한 대체 입력 시험과 프로그램 기존 PDF·DXF 테스트는 완료.
+- 자동 회귀 188/188 PASS; 기존 불투명 PNG/JPG SHA-256 동일; 실제 Windows PySide6·EXE·고DPI QA NOT RUN.

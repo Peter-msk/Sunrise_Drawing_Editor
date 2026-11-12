@@ -46,6 +46,7 @@ def capture(width: int, height: int, output: Path, scale_label: str) -> bool:
         'output_browse': window.browse_button,
         'output_folder': window.output_folder,
         'resolution': window.resolution_combo,
+        'png_transparency': window.transparent_png,
     }
     results = {}
     client_rect = window.rect()
@@ -54,7 +55,7 @@ def capture(width: int, height: int, output: Path, scale_label: str) -> bool:
         rect = QRect(origin, widget.size())
         # A nested scroll area may intentionally clip long lists. Primary
         # export controls and settings must *always* remain fully reachable.
-        must_fit = name in {'export', 'output_folder', 'resolution'}
+        must_fit = name in {'export', 'output_folder', 'resolution', 'png_transparency'}
         results[name] = {
             'visible': widget.isVisibleTo(window),
             'rect': [rect.x(), rect.y(), rect.width(), rect.height()],

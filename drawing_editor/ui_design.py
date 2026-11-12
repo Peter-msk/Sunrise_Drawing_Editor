@@ -23,12 +23,12 @@ def panel_layout(window_width: int) -> PanelLayout:
     each breakpoint and the user cannot accidentally collapse a control pane.
     """
     if window_width < 900:
-        return PanelLayout(154, 236, False, False)
+        return PanelLayout(166, 232, False, False)
     if window_width < 1120:
-        return PanelLayout(194, 286, False, False)
+        return PanelLayout(218, 275, False, False)
     if window_width < 1340:
-        return PanelLayout(222, 322, True, True)
-    return PanelLayout(248, 350, True, True)
+        return PanelLayout(265, 305, True, True)
+    return PanelLayout(292, 330, True, True)
 
 
 @dataclass(frozen=True)

@@ -15,8 +15,9 @@ def _check(cancelled):
         raise InterruptedError('이미지 추출이 취소되었습니다.')
 
 
-def raster_stripes(page, width, height, *, edge=512, progress=None, cancelled=None):
-    """Assemble RGB scanline strips from <=512x512 clipped page renders."""
+def raster_stripes(page, width, height, *, edge=512, progress=None,
+                   cancelled=None, transparent=False):
+    """Assemble RGB or RGBA scanline strips from clipped page renders."""
     rect = page.rect
     # Exactly match requested raster dimensions on both axes. A single
     # min() scale causes 1px gaps on fractional or rotated PDF page sizes.
@@ -38,15 +39,19 @@ def raster_stripes(page, width, height, *, edge=512, progress=None, cancelled=No
     # The old implementation rendered a 512px-wide tile for every x position,
     # repeating PDF display-list traversal many times per stripe. For an A3
     # drawing at ~6500px wide this removes ~13x redundant clip renders.
-    budget = 12_000_000  # bounded per-render RGB allocation, not output file cap
+    channels = 4 if transparent else 3
+    budget = 12_000_000  # bounded per-render allocation, not output file cap
     halo = 2
-    edge_y = max(1, min(edge, budget // max(3, width * 3) - halo * 2))
-    full_width = width * 3 * (edge_y + halo * 2) <= budget
+    edge_y = max(1, min(edge, budget // max(channels, width * channels) - halo * 2))
+    full_width = width * channels * (edge_y + halo * 2) <= budget
     step_x = width if full_width else edge
     for y0 in range(0, height, edge_y):
         _check(cancelled)
         y1 = min(height, y0 + edge_y)
-        stripe = bytearray(b'\xff' * (width * (y1-y0) * 3))
+        # Transparent PNG starts with zero alpha. The historical RGB path
+        # keeps white page paper, so existing exports remain byte-compatible.
+        stripe = bytearray((b'\x00' if transparent else b'\xff') *
+                           (width * (y1-y0) * channels))
         for x0 in range(0, width, step_x):
             _check(cancelled)
             x1 = min(width, x0 + step_x)
@@ -60,29 +65,29 @@ def raster_stripes(page, width, height, *, edge=512, progress=None, cancelled=No
                              rect.x0 + cx1/xscale, rect.y0 + cy1/yscale)
             if display_list is None:
                 pix = page.get_pixmap(matrix=matrix, clip=clip, colorspace=fitz.csRGB,
-                                      alpha=False, annots=True)
+                                      alpha=transparent, annots=True)
             else:
                 pix = display_list.get_pixmap(matrix=matrix, clip=clip,
-                                              colorspace=fitz.csRGB, alpha=False)
+                                              colorspace=fitz.csRGB, alpha=transparent)
             px0, py0 = pix.irect[0] - base.x0, pix.irect[1] - base.y0
             left, right = max(0, px0), min(width, px0 + pix.width)
             top, bottom = max(y0, py0), min(y1, py0 + pix.height)
             if right <= left or bottom <= top:
                 continue
             src = pix.samples_mv
-            count = (right-left)*3
+            count = (right-left)*channels
             # Most bands now use a single full-width pixmap. Transfer every
             # visible row in one contiguous copy instead of a Python row loop.
             # Require matching RGB stride to avoid padding/offset corruption.
             if (left == 0 and right == width and px0 == 0 and
-                    pix.width == width and pix.stride == width * 3):
+                    pix.width == width and pix.stride == width * channels):
                 start = (top - py0) * pix.stride
                 end = start + (bottom - top) * pix.stride
-                stripe[(top-y0)*width*3:(bottom-y0)*width*3] = src[start:end]
+                stripe[(top-y0)*width*channels:(bottom-y0)*width*channels] = src[start:end]
             else:
                 for yy in range(top, bottom):
-                    i = (yy-py0)*pix.stride + (left-px0)*3
-                    j = ((yy-y0)*width + left)*3
+                    i = (yy-py0)*pix.stride + (left-px0)*channels
+                    j = ((yy-y0)*width + left)*channels
                     stripe[j:j+count] = src[i:i+count]
             del src
         yield y0, y1, stripe
@@ -96,25 +101,43 @@ def _chunk(stream, label, data):
     stream.write(struct.pack('!I', zlib.crc32(data, zlib.crc32(label)) & 0xffffffff))
 
 
-def save_png_tiled(page, stream, width, height, dpi, *, progress=None, cancelled=None):
-    """Encode PNG scanlines incrementally without holding final RGB image in RAM."""
+def save_png_tiled(page, stream, width, height, dpi, *, progress=None,
+                   cancelled=None, transparent=False, source_rect=None):
+    """Encode RGB or RGBA PNG scanlines without a full-size RAM bitmap."""
     stream.write(b'\x89PNG\r\n\x1a\n')
-    _chunk(stream, b'IHDR', struct.pack('!IIBBBBB', width, height, 8, 2, 0, 0, 0))
+    _chunk(stream, b'IHDR', struct.pack('!IIBBBBB', width, height, 8,
+                                        6 if transparent else 2, 0, 0, 0))
     ppm = round(dpi / .0254)
     _chunk(stream, b'pHYs', struct.pack('!IIB', ppm, ppm, 1))
     # PNG is lossless regardless of deflate level. Level 2 materially lowers
     # CPU cost on large rendered drawings; the trade-off is larger PNG files.
     enc = zlib.compressobj(level=2)
     chunks, buffered = [], 0
-    rowbytes = width*3
-    for y0, y1, stripe in raster_stripes(page, width, height, progress=progress, cancelled=cancelled):
-        # PNG filter type 0 still appears before *every* scanline; combine the
-        # stripe in RAM (bounded by raster_stripes' 12MB render budget) and
-        # invoke zlib once instead of hundreds of times per stripe.
-        rows = y1 - y0
+    channels = 4 if transparent else 3
+    rowbytes = width * channels
+    if source_rect is None:
+        left = top = 0
+        full_width, full_height = width, height
+    else:
+        left, top, full_width, full_height = source_rect
+        if (min(left, top) < 0 or left + width > full_width or
+                top + height > full_height or width <= 0 or height <= 0):
+            raise ValueError('Invalid content crop region for PNG streaming export.')
+    # Render the same full-page stripes as the established legacy exporter,
+    # then omit outside rows/columns BEFORE PNG compression. This guarantees
+    # byte-for-byte RGB(A) pixel parity, including vector anti-aliasing at tile
+    # edges, without allocating a full-page bitmap or editing input geometry.
+    stripes = raster_stripes(page, full_width, full_height, progress=progress,
+                             cancelled=cancelled, transparent=transparent)
+    for y0, y1, stripe in stripes:
+        first = max(y0, top)
+        last = min(y1, top + height)
+        if first >= last:
+            continue
+        rows = last - first
         encoded_rows = bytearray((rowbytes + 1) * rows)
         for n in range(rows):
-            src = n * rowbytes
+            src = ((first + n - y0) * full_width + left) * channels
             dst = n * (rowbytes + 1) + 1
             encoded_rows[dst:dst + rowbytes] = stripe[src:src + rowbytes]
         compressed = enc.compress(encoded_rows)

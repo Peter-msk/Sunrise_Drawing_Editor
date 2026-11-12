@@ -1,0 +1,184 @@
+{
+  "basis": "8 PNG previously supplied in project context; the matching original PDFs were not available in accessible Library/Drive",
+  "original_pdf_render_test": "NOT RUN",
+  "extracted_png_visual_pixel_test": "PASS",
+  "input_images_embedded_in_public_source": false,
+  "samples": [
+    {
+      "sample": "onmap_export_01",
+      "input_px": [
+        1416,
+        2048
+      ],
+      "png_alpha_range": [
+        255,
+        255
+      ],
+      "visible_map_bbox": [
+        113,
+        195,
+        1300,
+        1673
+      ],
+      "content_px": [
+        1187,
+        1478
+      ],
+      "cropped_pixels_match_source_bbox": true
+    },
+    {
+      "sample": "onmap_export_02",
+      "input_px": [
+        1416,
+        2048
+      ],
+      "png_alpha_range": [
+        255,
+        255
+      ],
+      "visible_map_bbox": [
+        113,
+        195,
+        1300,
+        1673
+      ],
+      "content_px": [
+        1187,
+        1478
+      ],
+      "cropped_pixels_match_source_bbox": true
+    },
+    {
+      "sample": "onmap_export_03",
+      "input_px": [
+        1416,
+        2048
+      ],
+      "png_alpha_range": [
+        255,
+        255
+      ],
+      "visible_map_bbox": [
+        113,
+        195,
+        1300,
+        1673
+      ],
+      "content_px": [
+        1187,
+        1478
+      ],
+      "cropped_pixels_match_source_bbox": true
+    },
+    {
+      "sample": "onmap_export_04",
+      "input_px": [
+        1416,
+        2048
+      ],
+      "png_alpha_range": [
+        255,
+        255
+      ],
+      "visible_map_bbox": [
+        113,
+        195,
+        1300,
+        1673
+      ],
+      "content_px": [
+        1187,
+        1478
+      ],
+      "cropped_pixels_match_source_bbox": true
+    },
+    {
+      "sample": "onmap_export_05",
+      "input_px": [
+        1416,
+        2048
+      ],
+      "png_alpha_range": [
+        255,
+        255
+      ],
+      "visible_map_bbox": [
+        113,
+        195,
+        1300,
+        1673
+      ],
+      "content_px": [
+        1187,
+        1478
+      ],
+      "cropped_pixels_match_source_bbox": true
+    },
+    {
+      "sample": "onmap_export_06",
+      "input_px": [
+        1416,
+        2048
+      ],
+      "png_alpha_range": [
+        255,
+        255
+      ],
+      "visible_map_bbox": [
+        113,
+        195,
+        1300,
+        1673
+      ],
+      "content_px": [
+        1187,
+        1478
+      ],
+      "cropped_pixels_match_source_bbox": true
+    },
+    {
+      "sample": "onmap_export_07",
+      "input_px": [
+        1416,
+        2048
+      ],
+      "png_alpha_range": [
+        255,
+        255
+      ],
+      "visible_map_bbox": [
+        113,
+        195,
+        1300,
+        1673
+      ],
+      "content_px": [
+        1187,
+        1478
+      ],
+      "cropped_pixels_match_source_bbox": true
+    },
+    {
+      "sample": "onmap_export_08",
+      "input_px": [
+        1416,
+        2048
+      ],
+      "png_alpha_range": [
+        255,
+        255
+      ],
+      "visible_map_bbox": [
+        113,
+        195,
+        1300,
+        1673
+      ],
+      "content_px": [
+        1187,
+        1478
+      ],
+      "cropped_pixels_match_source_bbox": true
+    }
+  ]
+}

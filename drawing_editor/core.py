@@ -17,6 +17,7 @@ from ezdxf.addons.drawing import Frontend, RenderContext, layout as cad_layout, 
 from ezdxf.addons.drawing.config import Configuration, BackgroundPolicy, ColorPolicy
 from PIL import Image
 from .tiles import save_png_tiled, save_jpg_tiled
+from .trim import find_content_crop, image_ink_bbox
 from .cad_spatial import CADGridIndex
 from .cad_selective import VisibleDXFSource, SelectiveDXFUnsupported
 from .cad_render_fast import FastPyMuPdfBackend
@@ -74,10 +75,20 @@ class OutputOptions:
     width: int | None = None   # max pixel width, custom mode
     height: int | None = None  # max pixel height, custom mode
     dpi: int | None = None     # explicitly requested rasterizing DPI
+    background: str = "opaque"  # opaque (compatible default) | transparent (PNG only)
+    crop_margins: bool = False  # optional visual PNG paper trim; source unchanged
 
     def checked(self) -> "OutputOptions":
         if self.fmt not in {"png", "jpg"}:
             raise DrawingError("지원하는 출력 형식은 PNG 또는 JPG입니다.")
+        if self.background not in {"opaque", "transparent"}:
+            raise DrawingError("지원하지 않는 배경 설정입니다.")
+        if type(self.crop_margins) is not bool:
+            raise DrawingError("도면 외곽 여백 제거 옵션은 참/거짓이어야 합니다.")
+        if self.crop_margins and self.fmt != "png":
+            raise DrawingError("도면 외곽 여백 제거는 PNG 출력에서만 지원합니다.")
+        if self.background == "transparent" and self.fmt != "png":
+            raise DrawingError("투명 배경은 PNG 이미지에서만 사용할 수 있습니다.")
         if self.resolution not in {"original", "custom", "dpi", *EXPORT_PRESETS}:
             raise DrawingError("지원하지 않는 이미지 해상도 설정입니다.")
         if self.resolution == "custom":
@@ -169,7 +180,8 @@ def _pixel_dimensions(page: fitz.Page, *, preview: tuple[int, int] | None = None
 
 def _render_page(page: fitz.Page, fmt: str, preview: tuple[int,int] | None,
                  clip: tuple[float,float,float,float] | None = None,
-                 display_list: fitz.DisplayList | None = None) -> bytes:
+                 display_list: fitz.DisplayList | None = None,
+                 transparent: bool = False) -> bytes:
     bounds = page.rect
     if clip is None:
         width, height, dpi = _pixel_dimensions(page, preview=preview)
@@ -190,13 +202,13 @@ def _render_page(page: fitz.Page, fmt: str, preview: tuple[int,int] | None,
     matrix = fitz.Matrix(width / target.width, height / target.height)
     if display_list is None:
         pix = page.get_pixmap(matrix=matrix, clip=target,
-                              colorspace=fitz.csRGB, alpha=False, annots=True)
+                              colorspace=fitz.csRGB, alpha=transparent, annots=True)
     else:
         # DisplayList is generated with annots=True and reused within the
         # same document/OCG state for zoom/pan requests. It is invalidated on
         # any layer change, and never retained for temporary PDF documents.
         pix = display_list.get_pixmap(matrix=matrix, clip=target,
-                                       colorspace=fitz.csRGB, alpha=False)
+                                       colorspace=fitz.csRGB, alpha=transparent)
     if fmt == 'png':
         return pix.tobytes(output='png')
     return _image_to_bytes(Image.frombytes('RGB', (pix.width,pix.height), pix.samples),fmt,dpi)
@@ -756,7 +768,8 @@ class DrawingDocument:
         this layer state. Any unsupported condition falls back to full rendering.
         """
         if (self._cad is None or self._cad_recorder is not None or
-                preview is None or clip is None or options.fmt != 'png'):
+                preview is None or clip is None or options.fmt != 'png'
+                or options.background != 'opaque'):
             return None
         signature = (False, tuple(self._states.items()))
         saved = self._large_cad_page.get(signature)
@@ -876,7 +889,8 @@ class DrawingDocument:
         opts = (options or OutputOptions()).checked()
         cache_key = None
         if preview is not None and opts.fmt == 'png':
-            cache_key = (self.page_index, tuple(self._states.items()), preview, clip)
+            cache_key = (self.page_index, tuple(self._states.items()), preview, clip,
+                         opts.background)
             if cache_key in self._preview_cache:
                 data = self._preview_cache[cache_key]
                 self._preview_cache.move_to_end(cache_key)
@@ -900,21 +914,29 @@ class DrawingDocument:
                         w, h = 1600, 1000
                 else:
                     w, h = preview
-                image = Image.new("RGB", (max(1, w), max(1, h)), "white")
+                transparent = opts.fmt == 'png' and opts.background == 'transparent'
+                image = Image.new('RGBA' if transparent else 'RGB', (max(1, w), max(1, h)),
+                                  (0,0,0,0) if transparent else 'white')
                 return _image_to_bytes(image, opts.fmt, VECTOR_EXPORT_DPI)
             display = self._get_preview_display_list(page, temp, clip) if preview is not None else None
+            transparent = opts.fmt == 'png' and opts.background == 'transparent'
             if display is None:
-                data = _render_page(page, opts.fmt, preview, clip)
+                data = (_render_page(page, opts.fmt, preview, clip, transparent=True)
+                        if transparent else _render_page(page, opts.fmt, preview, clip))
             else:
                 try:
-                    data = _render_page(page, opts.fmt, preview, clip, display_list=display)
+                    data = (_render_page(page, opts.fmt, preview, clip,
+                                         display_list=display, transparent=True)
+                            if transparent else _render_page(page, opts.fmt, preview, clip,
+                                                              display_list=display))
                 except (RuntimeError, ValueError, MemoryError):
                     # DisplayList is optional acceleration. If its native
                     # renderer fails, retry once using the authoritative page
                     # path and do not rebuild this list for the same state.
                     self._preview_display_list = None
                     self._preview_display_failed_key = self._preview_display_key
-                    data = _render_page(page, opts.fmt, preview, clip)
+                    data = (_render_page(page, opts.fmt, preview, clip, transparent=True)
+                            if transparent else _render_page(page, opts.fmt, preview, clip))
             self._remember_preview(cache_key, data)
             return data
         except DrawingError:
@@ -979,26 +1001,61 @@ class DrawingDocument:
                         if opts.fmt == 'png':
                             with open(temporary, 'wb') as stream:
                                 save_png_tiled(blank_page, stream, width, height, dpi,
-                                               progress=progress, cancelled=cancelled)
+                                               progress=progress, cancelled=cancelled,
+                                               transparent=opts.background == 'transparent')
                         else:
                             save_jpg_tiled(blank_page, temporary, width, height, dpi,
                                            progress=progress, cancelled=cancelled)
                 else:
-                    img=Image.new('RGB',(width,height),'white')
+                    transparent = opts.fmt == 'png' and opts.background == 'transparent'
+                    img=Image.new('RGBA' if transparent else 'RGB', (width,height),
+                                  (0,0,0,0) if transparent else 'white')
                     img.save(temporary,format='PNG' if opts.fmt=='png' else 'JPEG', dpi=(dpi,dpi))
                     img.close()
                 if progress: progress(1.)
             else:
                 width,height,dpi=_export_pixel_dimensions(page, opts)
+                # Crop only the PNG canvas; preserve the original PDF layer,
+                # scaling, DPI and all vector commands. Fail safely on uncertain
+                # inspection rather than silently removing any map symbols.
+                # The native small-image path can inspect its own pixmap
+                # without rasterizing the PDF twice. Large exports use a
+                # bounded preview to choose a streaming clip region.
+                crop = (find_content_crop(page, width, height)
+                        if opts.fmt == 'png' and opts.crop_margins
+                        and width * height > 12_000_000 else None)
+                out_width = crop[2] - crop[0] if crop else width
+                out_height = crop[3] - crop[1] if crop else height
                 if width * height <= 12_000_000:
-                    # Fast native path on small drawings; large images take tiles.
-                    pix=page.get_pixmap(matrix=fitz.Matrix(
-                                        width/page.rect.width,
-                                        height/page.rect.height),
-                                        colorspace=fitz.csRGB,alpha=False,annots=True)
+                    # Use the ORIGINAL page pixel scale even for a cropped view.
+                    matrix=fitz.Matrix(width/page.rect.width,
+                                       height/page.rect.height)
+                    pix=page.get_pixmap(matrix=matrix,
+                                        colorspace=fitz.csRGB,
+                                        alpha=opts.fmt=='png' and opts.background=='transparent',
+                                        annots=True)
                     if opts.fmt=='png':
-                        pix.set_dpi(dpi,dpi)
-                        pix.save(str(temporary))
+                        if opts.crop_margins:
+                            # Fast, exact trim from the same raster as the
+                            # original export. No redundant PDF re-render and
+                            # no vector anti-aliasing changes at clip borders.
+                            channels = 'RGBA' if opts.background=='transparent' else 'RGB'
+                            image = Image.frombytes(channels,(pix.width,pix.height),pix.samples)
+                            try:
+                                trim = image_ink_bbox(image)
+                                if trim:
+                                    selected = image.crop(trim)
+                                    try:
+                                        selected.save(temporary,format='PNG',dpi=(dpi,dpi))
+                                    finally:
+                                        selected.close()
+                                else:
+                                    image.save(temporary,format='PNG',dpi=(dpi,dpi))
+                            finally:
+                                image.close()
+                        else:
+                            pix.set_dpi(dpi,dpi)
+                            pix.save(str(temporary))
                     else:
                         image=Image.frombytes('RGB',(pix.width,pix.height),pix.samples)
                         image.save(temporary,format='JPEG',dpi=(dpi,dpi),quality=98,subsampling=0)
@@ -1006,7 +1063,10 @@ class DrawingDocument:
                     if progress:progress(1.)
                 elif opts.fmt=='png':
                     with open(temporary,'wb') as stream:
-                        save_png_tiled(page,stream,width,height,dpi,progress=progress,cancelled=cancelled)
+                        save_png_tiled(page,stream,out_width,out_height,dpi,
+                                       progress=progress,cancelled=cancelled,
+                                       transparent=opts.background=='transparent',
+                                       source_rect=(crop[0],crop[1],width,height) if crop else None)
                         stream.flush();os.fsync(stream.fileno())
                 else:
                     save_jpg_tiled(page,temporary,width,height,dpi,progress=progress,cancelled=cancelled)
