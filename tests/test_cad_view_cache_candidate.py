@@ -55,6 +55,11 @@ class CADDisplayListCandidateTests(unittest.TestCase):
         self.drawing._cad_selective_last_stats = SimpleNamespace(selected_entities=3000)
         self.assertIsNone(self.drawing._get_preview_display_list(self.page, None, clip))
 
+    def test_stale_staging_stats_cannot_enable_the_cache(self):
+        clip = (0, 0, 200, 150)
+        self.drawing._cad_selective_key = (("other_layer", True),)
+        self.assertIsNone(self.drawing._get_preview_display_list(self.page, None, clip))
+
     def test_failure_does_not_retry_until_new_state(self):
         clip = (0, 0, 200, 150)
         broken = _BrokenPage(self.page)
