@@ -826,6 +826,7 @@ class DrawingDocument:
             # Limit by *active* entities and staged PDF size instead.
             stats = self._cad_selective_last_stats
             if (self._cad_view_pdf_bytes > 2 * 1024 * 1024 or
+                    self._cad_selective_key != tuple(self._states.items()) or
                     stats is None or stats.selected_entities > 512):
                 return None
         elif self._cad_layered_pdf is None or self.path.stat().st_size > 96 * 1024 * 1024:
