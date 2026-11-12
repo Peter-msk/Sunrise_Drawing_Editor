@@ -1,0 +1,747 @@
+{
+  "schema": "Sunrise source SHA-256 manifest",
+  "basis": "Qt-MCP-informed UI/UX stage 2+3 candidate, 169/169 static+engine tests, Windows GUI pending",
+  "drive_threepass_zip_sha256": "655f4d47b83aca64fcabdd89d5e1aea0939ff84930e0f80d9e4c5d49fd16892e",
+  "previous_candidate_zip_sha256": "b3d1e262a2567df95666f2b3ac6369d39409fc6794a4f96cbf25266218ced8c7",
+  "user_dxf_included": false,
+  "files": [
+    {
+      "path": ".gitignore",
+      "sha256": "7ce4fe70951e70b9898ee980c8d0a3b3a86fd49a641fb7c5429745fb25d75394",
+      "bytes": 163
+    },
+    {
+      "path": "BUILD_AUDIT.md",
+      "sha256": "b533cf0e6abfee8f9cbadb89a25f5ebfcd3bf452291eb05fe3bcd48d37025489",
+      "bytes": 7234
+    },
+    {
+      "path": "BUILD_ONEFILE.cmd",
+      "sha256": "3fe9bbd4143b1188310df92b20e588557ee364ca1ce1b7f13986e60b1ce86f61",
+      "bytes": 4919
+    },
+    {
+      "path": "BUILD_QT_FIX_AUDIT.md",
+      "sha256": "6305e31a5dae97c75f09c59ff4b24941cd9333b9d89f7f9f1d3d45f1bee95fbb",
+      "bytes": 2176
+    },
+    {
+      "path": "CAD_DISPLAYLIST_CANDIDATE.md",
+      "sha256": "bd0c00d3645f36ba5cdffc7f0ed835d41c8d648a33e50e12164555d618bc4797",
+      "bytes": 3001
+    },
+    {
+      "path": "CAD_NATIVE_LAYER_OPTIMIZATION.md",
+      "sha256": "084b4c794e53edd6086828dc0f45353c67357aad179d2b932b25019b47e61116",
+      "bytes": 3927
+    },
+    {
+      "path": "CAD_PERFORMANCE_IMPLEMENTATION.md",
+      "sha256": "817a8c9c46a96bf3806f23095edc000b2b60591476aeb959cd49d3778f534143",
+      "bytes": 6557
+    },
+    {
+      "path": "CAD_RENDER_OPTIMIZATION.md",
+      "sha256": "e1e7705a5d14d4c5e30415aaa9055fb96577e500be4d13289da878dfc6f65004",
+      "bytes": 3257
+    },
+    {
+      "path": "DRIVE_BASELINE_INTEGRATION_AUDIT.md",
+      "sha256": "8985192f46e2d56058ff5b232be0b1d6724105bb0b87aac0e88150f97e6a5974",
+      "bytes": 4576
+    },
+    {
+      "path": "FIELD_DXF_INSERT_OPTIMIZATION.md",
+      "sha256": "11753a8390216d84725dde7b04deab6ed7928ce7b9cf5f05107cbcc0c04817f8",
+      "bytes": 6203
+    },
+    {
+      "path": "FIELD_DXF_PERFORMANCE_FIX.md",
+      "sha256": "e8800b08372f99f2ede9d6155824dc4571395ea2bc7ff5099a21a58d3cab38b7",
+      "bytes": 6292
+    },
+    {
+      "path": "FIELD_DXF_SECOND_PASS.md",
+      "sha256": "9e3a6b784ce4248cc156ebf6ed731a77f4d92303069184fabe88a24d475d31cf",
+      "bytes": 5849
+    },
+    {
+      "path": "FIELD_VALIDATION_AND_FIXES.md",
+      "sha256": "9c1462700d0a9f06c6ca6c7eb49d6961e5e4104b62852bd01c219cab1ea229a7",
+      "bytes": 3446
+    },
+    {
+      "path": "FINAL_SOURCE_HANDOVER.md",
+      "sha256": "354227bbf6fd12649fe74a5d53ddbc418dbf89ca0280c13a56f27b2c8adad354",
+      "bytes": 5074
+    },
+    {
+      "path": "GITHUB_PERFORMANCE_AUDIT.md",
+      "sha256": "cf9acdbbda50a9959100c9c06fbdb16c3bf36148d0165ad9351d25f1cc71b050",
+      "bytes": 5966
+    },
+    {
+      "path": "INSTALL_AND_RUN.cmd",
+      "sha256": "d073a2b5e65e18d7497e61494139d35b962914f2a8a302d22ed5d437a973fb41",
+      "bytes": 893
+    },
+    {
+      "path": "LARGE_CAD_OPTIMIZATION.md",
+      "sha256": "9c71096daa256b608f1d390de23d2a8f722787814683996dc8a7cfbcb094f87b",
+      "bytes": 5237
+    },
+    {
+      "path": "OPEN_SOURCE_REVIEW.md",
+      "sha256": "258537bf252a6a17e2d90c81a9c2676dfad2f946506432e5a4fbb4ae4b02e81a",
+      "bytes": 3732
+    },
+    {
+      "path": "QA_STATUS.md",
+      "sha256": "ed770f60db85ff9b05318c4947b23bc9488089cefeff38476daf2b48129adaf8",
+      "bytes": 9969
+    },
+    {
+      "path": "README.md",
+      "sha256": "50a7d58a21398d424ecbc3fbf9914613dfd60959d3b00865d9f6372c7ba2fa28",
+      "bytes": 23712
+    },
+    {
+      "path": "RELEASE_STATUS.md",
+      "sha256": "bf9be478135a83c45f61f5579f5226f243ca26764cea10dfb14af4fca358f008",
+      "bytes": 4350
+    },
+    {
+      "path": "RENDER_EXPORT_OPTIMIZATION.md",
+      "sha256": "8139e12913b9d07b375790603777b02e839f7198c41b7295a38c2d477c298960",
+      "bytes": 2936
+    },
+    {
+      "path": "RUN.cmd",
+      "sha256": "500bfc8ea68c9334713c10ede40d51bfea9b63c290577c0707dc082ebb92cc82",
+      "bytes": 715
+    },
+    {
+      "path": "RUN_TESTS.cmd",
+      "sha256": "570c38fbaeec8be5b712208286f1aa83b0397c651bb73355623159bd11616535",
+      "bytes": 256
+    },
+    {
+      "path": "RUN_UI_QA.cmd",
+      "sha256": "9688a93c5d2c0674e8c5a71af771b02a463948754ab2c1c8559b901bb6c4ccf6",
+      "bytes": 1130
+    },
+    {
+      "path": "SOURCE_CHECKPOINT.md",
+      "sha256": "6af44023a97c211e1c82c5dd9081db9009e14ba627d63e475ee428b7b1df881b",
+      "bytes": 3078
+    },
+    {
+      "path": "THIRD_PARTY_NOTICE.md",
+      "sha256": "4c7e90d804fbfc1c6185a5eed29e54c280ec0b8118b690fa747528f9308e0d49",
+      "bytes": 1599
+    },
+    {
+      "path": "THREE_PASS_DEEP_VALIDATION.md",
+      "sha256": "d60e39ea1248d4f27dc883912bc5a67d6b708b16fc38333074a5273728fefe12",
+      "bytes": 8151
+    },
+    {
+      "path": "UI_UX_FINAL_AUDIT.md",
+      "sha256": "826488d9053ba73fd46c7d91f3a37e34aaa8be7786b671452d6bb035f3667a75",
+      "bytes": 4454
+    },
+    {
+      "path": "assets/app.ico",
+      "sha256": "376c763024ec4a521bf84169ffd293e2cc1e57efb9147a89d07c77e0e47232b1",
+      "bytes": 32079
+    },
+    {
+      "path": "assets/app.png",
+      "sha256": "959d5dbc2e3273c9669e547d6c3638c65cbb0270a2ea8d3f9c49a298ce6bbbd0",
+      "bytes": 11121
+    },
+    {
+      "path": "assets/app.svg",
+      "sha256": "d02dcab966505f3ea53c0c12d5bff0c2ff23e83dd0763abc963d484206a991fe",
+      "bytes": 930
+    },
+    {
+      "path": "assets/icon_add.svg",
+      "sha256": "e20f123ecb5ed7f203b808c284ba918663611613e0ccc22dcc6cc05454c52e56",
+      "bytes": 252
+    },
+    {
+      "path": "assets/icon_apply.svg",
+      "sha256": "dd1ed84c37453b0082aab103fc9bf3a8081d5a73f0dd313000f2052c32bf1a73",
+      "bytes": 271
+    },
+    {
+      "path": "assets/icon_delete.svg",
+      "sha256": "7553fccc633ab6936286627f5c792db202cbf5c125566ffde752d3a269ff69eb",
+      "bytes": 254
+    },
+    {
+      "path": "assets/icon_deselect.svg",
+      "sha256": "13d5830a79ebd5c2d0f1ff45d037cecc229a23e3924ca578d83e5ab7dee57d8a",
+      "bytes": 271
+    },
+    {
+      "path": "assets/icon_drawing.svg",
+      "sha256": "950672f7c8bb9653f1c8e521c5fd859589532ffcff8bedbeed119eb85709b4f5",
+      "bytes": 244
+    },
+    {
+      "path": "assets/icon_export.svg",
+      "sha256": "8c34fbb5e0a129cc2778f530aaf5063efcb8182b708a0bdc3a3dfb633e004d19",
+      "bytes": 261
+    },
+    {
+      "path": "assets/icon_export_white.svg",
+      "sha256": "af14df452d331350a0a26a7da82a751f0cfc75c8528981d00b05f8fc4104620e",
+      "bytes": 262
+    },
+    {
+      "path": "assets/icon_fit.svg",
+      "sha256": "0aa247d650bb8d2e44ad8152a3455230b1f1be00d4144f58f399de403c06b7fa",
+      "bytes": 286
+    },
+    {
+      "path": "assets/icon_folder.svg",
+      "sha256": "665ecf60b52081b3acea36ff666d5d4c612549d38337e435b24a18b48f118d6f",
+      "bytes": 242
+    },
+    {
+      "path": "assets/icon_hidden.svg",
+      "sha256": "0f855fd891e5c4b6bc4c946a6e4a227fa829d71da6e5c73f7a8251c18b1597f1",
+      "bytes": 306
+    },
+    {
+      "path": "assets/icon_moon.svg",
+      "sha256": "f6a622a6c1193559be1aef425512af20fd0afb8c98eae05fb1946a52d114097a",
+      "bytes": 256
+    },
+    {
+      "path": "assets/icon_next.svg",
+      "sha256": "e49dabea55857e0d4450c11f5546641d4ef21b0c8a9430d17aa0b22fef2e9b1f",
+      "bytes": 215
+    },
+    {
+      "path": "assets/icon_prev.svg",
+      "sha256": "d79fa6c90db13f517f08ae801c227b263194bb5fb02a09e044fdce91fd80a27a",
+      "bytes": 216
+    },
+    {
+      "path": "assets/icon_remove.svg",
+      "sha256": "b8104e12a33e1f1f49184a2da1fde0d71d63fa5e2485338d57177430c2b8da07",
+      "bytes": 253
+    },
+    {
+      "path": "assets/icon_save.svg",
+      "sha256": "31a5a362a9c85c9ab3b5a5a6f1e808a1b8125cfea2ed02dffdd26f19e8101162",
+      "bytes": 255
+    },
+    {
+      "path": "assets/icon_search.svg",
+      "sha256": "cf1199f838b179ad7d6c6b15314848b3aa3f2a0d0be97b658f5193578e4d379f",
+      "bytes": 255
+    },
+    {
+      "path": "assets/icon_select_all.svg",
+      "sha256": "2b67bb4d341c4632c1f0220ba0d0f8c6dea9d1a9d09e61d7104f4e374f2ce4bf",
+      "bytes": 266
+    },
+    {
+      "path": "assets/icon_stop_white.svg",
+      "sha256": "3e42297c865632ace03ffc8e731e1e2ab7f5b68c8616cbcfd93df224957d3aad",
+      "bytes": 246
+    },
+    {
+      "path": "assets/icon_sun.svg",
+      "sha256": "824937c3b6b8a3c557919e811e151f29a0b7d28977d2221d998d04774184beed",
+      "bytes": 316
+    },
+    {
+      "path": "assets/icon_visible.svg",
+      "sha256": "e6d9f36050c4121f592e57341a0f37bf81903da434b9614908f52ca2c65ea1b1",
+      "bytes": 291
+    },
+    {
+      "path": "assets/icon_zoom_in.svg",
+      "sha256": "2e7246b015b1fbc81d041e799a747c80044df7e3b408a08be88f75b8b8784b5b",
+      "bytes": 265
+    },
+    {
+      "path": "assets/icon_zoom_out.svg",
+      "sha256": "5eeb94e69bd4f6aa8bf320d0dcac51dda3c84b545f0d4440884d03a69d8b8b80",
+      "bytes": 256
+    },
+    {
+      "path": "build/WINDOWS_BUILD_CHECKLIST.md",
+      "sha256": "7f6ed90c40edcca3c887974a92589d4473da31fb1ba6412eda2e541d3ea29cb8",
+      "bytes": 4961
+    },
+    {
+      "path": "build/preflight.py",
+      "sha256": "34778e0d123a459d832739a060ac517509b22b2219d3fdd77144721720e5414e",
+      "bytes": 1848
+    },
+    {
+      "path": "build/publish_release.py",
+      "sha256": "1df43d99dd0ae3741c6b561bfddfa767d67c9b564e50d53cd435d824c5172390",
+      "bytes": 3112
+    },
+    {
+      "path": "build/requirements-build.txt",
+      "sha256": "f8854768e586c1db0504c787bee745507bf609e9674d8e5cf3f0723041657535",
+      "bytes": 42
+    },
+    {
+      "path": "build/sign_release.py",
+      "sha256": "23ff91c126271c23c33ff1f46d03ce8a3e247676bf58e9c78a14217219775576",
+      "bytes": 13122
+    },
+    {
+      "path": "build/smoke_test.py",
+      "sha256": "0808f11f6afbc27482b71f186e5cf9151cd904a9b751e74d98092ecfe98ae027",
+      "bytes": 1819
+    },
+    {
+      "path": "docs/FINAL_WINDOWS_QA_CHECKLIST_20261112.md",
+      "sha256": "29f4f4e5e5ae7d6f617dda89ea5acda0e922b936bf3b87867b7de4e8a3aabd92",
+      "bytes": 2408
+    },
+    {
+      "path": "docs/QT_MCP_UIUX_SOURCE_CHANGES.patch",
+      "sha256": "8bc2a1d65c1dec9ce13a444344ea583fe2896fad623346281dcc2bcdf345080c",
+      "bytes": 35222
+    },
+    {
+      "path": "docs/QT_MCP_UIUX_STAGE2_STAGE3_20261112.md",
+      "sha256": "fd5137597b93f1886ece1e17be925db68b4039e127d23857a1105f85c1c0cc2a",
+      "bytes": 3288
+    },
+    {
+      "path": "docs/Sunrise_Drawing_Editor_Development_Plan.md",
+      "sha256": "9042c8afff9408cde42d2c64d3bf0e80004bc9b8d90c1bc17294e3186a952c76",
+      "bytes": 3312
+    },
+    {
+      "path": "docs/Sunrise_Drawing_Editor_Handover.md",
+      "sha256": "2620ac0deda20ad7ff9b960cbc53386a34b6799581f2a40e5b7f426dafa755dc",
+      "bytes": 4289
+    },
+    {
+      "path": "docs/Sunrise_Drawing_Editor_Work_Instructions.md",
+      "sha256": "d8a1db5235cf63fc378b6aea8404744f47e925dfc06219c80fbdf1ca3e6ba993",
+      "bytes": 2801
+    },
+    {
+      "path": "docs/UI_UX_MCP_IMPLEMENTATION_REPORT_20261112.md",
+      "sha256": "1e3dd7646253cd76905d3a128f56680b2a393e0b982fba26d3490cc5394e4f98",
+      "bytes": 4944
+    },
+    {
+      "path": "docs/UI_UX_MCP_REDESIGN_20261112.md",
+      "sha256": "073f70262b552ba099abcb62cd7dce84528ece7c711551d4af7e7d9a6ea4786c",
+      "bytes": 3934
+    },
+    {
+      "path": "drawing_editor/batch.py",
+      "sha256": "805acb1181cdf97db7798dc8cb925ff2fccfaf7d7db4dd683925bfaf2bc71d8c",
+      "bytes": 9823
+    },
+    {
+      "path": "drawing_editor/cad_catalog.py",
+      "sha256": "c74394f64e6cb6d9a75dd51b316a64a1a73f424c3fc5de6725883535e4928bf9",
+      "bytes": 4779
+    },
+    {
+      "path": "drawing_editor/cad_render_fast.py",
+      "sha256": "1b55f3f710c088796ae74135073c2bc41e4bff04f935bf1ae48095dd64afbc83",
+      "bytes": 6700
+    },
+    {
+      "path": "drawing_editor/cad_selective.py",
+      "sha256": "a0ae12e1c65f291dba6098b5236cd42a58930d494651f0df9887faf5aefec8d4",
+      "bytes": 23939
+    },
+    {
+      "path": "drawing_editor/cad_spatial.py",
+      "sha256": "772304467c94b04e984efe6bb5a19f058efa456595f3ec630aaf68f37ce22a14",
+      "bytes": 4746
+    },
+    {
+      "path": "drawing_editor/core.py",
+      "sha256": "88de5581d3b5c51465337f89bd7088604b9ba7364e6af1bd43e86e91112338cf",
+      "bytes": 55412
+    },
+    {
+      "path": "drawing_editor/dwg_fallback.py",
+      "sha256": "2f4e3fd34c47ee9bc9824c21b23c1c39ce260164df47a3c36431b2abb2431973",
+      "bytes": 2644
+    },
+    {
+      "path": "drawing_editor/icons.py",
+      "sha256": "ea014e6ea59e398680168ab0037b884918fa24c501664de3f7b94af60ccb0083",
+      "bytes": 280
+    },
+    {
+      "path": "drawing_editor/state.py",
+      "sha256": "0bbed6488297cca6413458677a40b871f912c5ef62aed906f0ff3d78c11e7942",
+      "bytes": 2524
+    },
+    {
+      "path": "drawing_editor/tiles.py",
+      "sha256": "ee71511160cc09cc087e72b18d70c743e22683d9793347bf003df723d8214127",
+      "bytes": 7931
+    },
+    {
+      "path": "drawing_editor/ui_design.py",
+      "sha256": "3deb1b5d4beaad710715f0aed41d3bac29f7b5faa2ed3a57ae346070a1c596a9",
+      "bytes": 1906
+    },
+    {
+      "path": "drawing_editor/ui_interaction.py",
+      "sha256": "c67fa72a7b64a0177b00445d0867f54729b90eea9ee21ecfbfba47bb9626bbae",
+      "bytes": 984
+    },
+    {
+      "path": "drawing_editor/window.py",
+      "sha256": "fcaa3f03ca1ee1d7e66fb400b60673dba3178203a8fe30856b226397ec83a47b",
+      "bytes": 84357
+    },
+    {
+      "path": "main.py",
+      "sha256": "281a77f5ac642e18201a7f63eec2c779439aae42d83558339cf1c3c1be4e7e90",
+      "bytes": 941
+    },
+    {
+      "path": "quality/BASELINE_REAL_VALIDATION.json",
+      "sha256": "e2760ea08f13145de1e032241bd5549d9d5002122b5656c7019bdc4dd31db5e0",
+      "bytes": 3005
+    },
+    {
+      "path": "quality/CAD_IO_BATCH_BENCHMARK.json",
+      "sha256": "894daa9f194e9f25d4cccc293c00b9d285774cb1f59090fb213ae7fb01bf05b7",
+      "bytes": 446
+    },
+    {
+      "path": "quality/DEEP_THREE_PASS_UNITTESTS.log",
+      "sha256": "b2c0deb6d37e2122d0f7928ff88b26f899178f0f8d1438961ee2a1d08d0eece2",
+      "bytes": 100
+    },
+    {
+      "path": "quality/DEEP_baseline_1.json",
+      "sha256": "3bedd378e386d43c379e89af5444baab32abb9f01011eb3a80babbf8ea8df5ce",
+      "bytes": 661
+    },
+    {
+      "path": "quality/DEEP_baseline_2.json",
+      "sha256": "f1ffe28ad6ef911e8314e8761e9dc29d6c30be032dab449d546e7efa69b34c4f",
+      "bytes": 661
+    },
+    {
+      "path": "quality/DEEP_optimized_1.json",
+      "sha256": "719871aba7ef32e84af9ac44991c3b13fb020c6fb7fd9c6eea567993937dc02d",
+      "bytes": 661
+    },
+    {
+      "path": "quality/DEEP_optimized_2.json",
+      "sha256": "36887d590472f3033c7e59114cf4b009b1083d263a29bc81a1ca4f2d61a8bf44",
+      "bytes": 662
+    },
+    {
+      "path": "quality/DRIVE_BASELINE_COMPARE.json",
+      "sha256": "046f3968a860d52d06d9e4b198f595e035b7ceeabc2763c222b893c1ef35cad3",
+      "bytes": 4880
+    },
+    {
+      "path": "quality/FIELD_DXF_BENCHMARK.json",
+      "sha256": "c0ebc787bc615a44ab4a72505b59f49a1fb97ae776809056c0618508ec32d55d",
+      "bytes": 1081
+    },
+    {
+      "path": "quality/FIELD_DXF_BENCHMARK_FAST_SCAN.json",
+      "sha256": "d8c00528b0c5862e9b8a53f5d869ff88abc7216b38859680874599151f637eaf",
+      "bytes": 1082
+    },
+    {
+      "path": "quality/FIELD_DXF_BENCHMARK_OBJECTS_FAST.json",
+      "sha256": "e6865bd4c35202767a5eed2f690f4362878f840b446280a24ca1b629344639cd",
+      "bytes": 1081
+    },
+    {
+      "path": "quality/FINAL_ASSEMBLY_QA_20261112.json",
+      "sha256": "2258037ea5b3fc6a7c80270a8c3da40839cba97a27dee551e8778fe383c5e7ce",
+      "bytes": 1512
+    },
+    {
+      "path": "quality/FINAL_ASSEMBLY_TESTS_20261112.log",
+      "sha256": "735d5d98987fdb25ebedb07940b2cdc714fb697610fc73a7ceefc9504e3f88b8",
+      "bytes": 210
+    },
+    {
+      "path": "quality/FINAL_SMOKE_HASHES_20261112.json",
+      "sha256": "1462e166eff4da5a9c0b369c6990841bb9e01b003b73778bacbbded00df4a97a",
+      "bytes": 4791
+    },
+    {
+      "path": "quality/FINAL_UNIT_TESTS.txt",
+      "sha256": "f20a381cf5b1d10d012f3667b42ede28cd01bdfe4488a35162cb50d038f583dd",
+      "bytes": 100
+    },
+    {
+      "path": "quality/INSERT_REAL_EXPORT_RESULTS.json",
+      "sha256": "dd7ca61f6f65ff4860458e461f37657ec8b09bf8d7e75004d0ad03a94e816486",
+      "bytes": 283
+    },
+    {
+      "path": "quality/OPTIMIZED_REAL_FINAL_VALIDATION.json",
+      "sha256": "620c283c1959cd658e459a34d2c461eccdf2ff5658189495bcbb89254e938cec",
+      "bytes": 3002
+    },
+    {
+      "path": "quality/OPTIMIZED_REAL_RELEASE_VALIDATION.json",
+      "sha256": "d0942fb276d3055c5353fecfacf01a351fa8b024a1485506189fd5bd5e8b8950",
+      "bytes": 3004
+    },
+    {
+      "path": "quality/OPTIMIZED_REAL_VALIDATION.json",
+      "sha256": "ac36894762741db1159f0bfb1ba6df4542a61560626241e5808d45bfa637643c",
+      "bytes": 3004
+    },
+    {
+      "path": "quality/REAL_DXF_LEGACY_PIXELS.json",
+      "sha256": "91243e4e8725b63afaafbb3c5a1a2eec158f2b968c99a2874ee2ddba4fb53d16",
+      "bytes": 786
+    },
+    {
+      "path": "quality/REAL_DXF_OPTIMIZED_PIXELS.json",
+      "sha256": "52805bcd3a43a5759b68f264da02c06eafc619e17202aa95e69bbacb1783fb11",
+      "bytes": 785
+    },
+    {
+      "path": "quality/REAL_INDEX_CROSSCHECK.json",
+      "sha256": "c00fb7afedbb712f09c657b6cb1e2468ce388730889797a2dfc41ed75cc16d7d",
+      "bytes": 1577
+    },
+    {
+      "path": "quality/ROUND2_FULL_TESTS.log",
+      "sha256": "9a72dcdbb5c970649dee1926dd48f56471bd5890270b6eb5aac158a2e2677d30",
+      "bytes": 19985
+    },
+    {
+      "path": "quality/UI_QT_MCP_WORKFLOW_QA_20261112.json",
+      "sha256": "e3ac66ff804d5ab764688edb43227387c8e6923fa13c6aceb4e9d1be2fdb422e",
+      "bytes": 1338
+    },
+    {
+      "path": "quality/UI_QT_MCP_WORKFLOW_TESTS_20261112.log",
+      "sha256": "1f483bd636e1786db97ce8b354bb9552786474dac852b7c84514f3063e5a6d96",
+      "bytes": 100
+    },
+    {
+      "path": "quality/UI_UX_QA_20261112.json",
+      "sha256": "f8d204fd010d5dd48f685d556ee20eebe3c816749bf7775a5bafbea4213f8c68",
+      "bytes": 1454
+    },
+    {
+      "path": "quality/UI_UX_TESTS_20261112.log",
+      "sha256": "df3e66c4ed986ace14f2ccb0561295f6f902c3780d64054845d2da53cbdff421",
+      "bytes": 100
+    },
+    {
+      "path": "quality/UI_VALIDATION.json",
+      "sha256": "8fb2d6b79e6833c3637ae12dd38816ba6e888adccecdbce1975c50fc330ffd51",
+      "bytes": 764
+    },
+    {
+      "path": "quality/baseline_tiles.py",
+      "sha256": "87f29d693ad178cd322d43398c6d3d913718293d020086b9dc4067a8456bb701",
+      "bytes": 5790
+    },
+    {
+      "path": "quality/benchmark_cad_io_batch.py",
+      "sha256": "27896858948cca3a6e925b8b8d85325f44528934bbd4bc42267d5847aa7ccabc",
+      "bytes": 3497
+    },
+    {
+      "path": "quality/benchmark_cad_view_cache.py",
+      "sha256": "ff0d23a40c405e6dd6b9ee0249137b8193dd9b91dead4d40914d9ce66d2b4a11",
+      "bytes": 3663
+    },
+    {
+      "path": "quality/benchmark_export_stripes.py",
+      "sha256": "1757923c7c5ce28e831932e99a59fc35faac0e36377c5920711123dd59e8059c",
+      "bytes": 5659
+    },
+    {
+      "path": "quality/benchmark_field_dxf.py",
+      "sha256": "8a5370c64fb964b282feddeb9b14b8cb60df6cf7284a082fab91f84d946e0651",
+      "bytes": 4376
+    },
+    {
+      "path": "quality/benchmark_github_optimization.py",
+      "sha256": "7db023b9ab24f56a8be753d58a852eacee929e9568a756d1c9d4770f96fbd7d3",
+      "bytes": 6085
+    },
+    {
+      "path": "quality/benchmark_large_cad.py",
+      "sha256": "692c57d6176e3f04495b57a7cf513888a942e57bf097e19b9955b576cb348866",
+      "bytes": 3545
+    },
+    {
+      "path": "quality/compare_real_dxf_index.py",
+      "sha256": "9341218df21748423d6b016985a74c8e1ce1c27aa78c22c99b74d411a5f6a8df",
+      "bytes": 2491
+    },
+    {
+      "path": "quality/qa_gui_layout.py",
+      "sha256": "602478307542a50fdad9bd77c638f451fa9c132ae0ce17c8920d026122286f01",
+      "bytes": 5726
+    },
+    {
+      "path": "quality/real_insert_probe.py",
+      "sha256": "dbf21eab173bc6b6bf55050e02e2e3ea68385341e8383e512599ea8c93d374b3",
+      "bytes": 1742
+    },
+    {
+      "path": "quality/validate_three_pass.py",
+      "sha256": "5ba5d616e91b0f1f04c6a153caafe49a41fb81ca6c1a0e97a835400eeef4f73d",
+      "bytes": 4830
+    },
+    {
+      "path": "quality/verify_real_dxf_hashes.py",
+      "sha256": "24fa27a204a93fb777f5efde5a36f79166efbb4b1d8929165dba6da7e02f04a2",
+      "bytes": 929
+    },
+    {
+      "path": "requirements.txt",
+      "sha256": "cccff22b29666a0f84f6a24e93928ff93ece07bed717133cb94b2d2a53946e81",
+      "bytes": 160
+    },
+    {
+      "path": "sample_data/SAMPLE_3_LAYERS.dxf",
+      "sha256": "36e3b0b8932ff91d74ab2f1f324d72166d16bb1dd9c24ec545f135bec4f50819",
+      "bytes": 16148
+    },
+    {
+      "path": "sample_data/SAMPLE_3_LAYERS.pdf",
+      "sha256": "b48a1424524709ba5220db48df9df3019d9d4995dfb93975b84c58ef855f578c",
+      "bytes": 1465
+    },
+    {
+      "path": "tests/test_batch.py",
+      "sha256": "3bc43787b10bdde9f1f663041cbf1dd6dd47d28cbcfbae02ff2ba5fab77916a6",
+      "bytes": 11113
+    },
+    {
+      "path": "tests/test_build_pipeline.py",
+      "sha256": "dcd5a391db15273a31de99040c79bb2ef784e1c1de9467a19fc1735c9535f91e",
+      "bytes": 8609
+    },
+    {
+      "path": "tests/test_cad_catalog.py",
+      "sha256": "d5d0d1db49a2862efa767fd58480faaa64fa0af6c2ff653f8131f5b7957f3fa4",
+      "bytes": 2167
+    },
+    {
+      "path": "tests/test_cad_fast_render.py",
+      "sha256": "598eb3cee3b09df61c69007c74aaf428e1c9bc0665e221b2cc8c2b8f43e17e64",
+      "bytes": 4762
+    },
+    {
+      "path": "tests/test_cad_io_batch.py",
+      "sha256": "f5f05cfc740970d3370344fefeca9db35c35646f238e51c4583d770613510360",
+      "bytes": 4775
+    },
+    {
+      "path": "tests/test_cad_next_optimization.py",
+      "sha256": "73a6afad9ce32da02dabbd7fea98c08ab6ffef1520c3e69de701a614c57215bb",
+      "bytes": 6375
+    },
+    {
+      "path": "tests/test_cad_ocg.py",
+      "sha256": "c0c0df29f22a4a1c8e537a18e7623bb26219db245f6c873dcbf00e639825b9a6",
+      "bytes": 5741
+    },
+    {
+      "path": "tests/test_cad_replay.py",
+      "sha256": "0e96b8a346a2d581558771a4ea1fc19e0e3b68d51e11bea26b0d7291227c31d4",
+      "bytes": 5162
+    },
+    {
+      "path": "tests/test_cad_selective.py",
+      "sha256": "5575de02e0cd2b1d4edc1b7cb4e71454a3a4f0cf29d47c7d5049d9b45b42214d",
+      "bytes": 10840
+    },
+    {
+      "path": "tests/test_cad_spatial.py",
+      "sha256": "9ce12e08ebdb03146380406a1cbebd24d9cc68ebec5be7d194400fdb1e616da2",
+      "bytes": 4794
+    },
+    {
+      "path": "tests/test_cad_view_cache_candidate.py",
+      "sha256": "6c004e5c71055295492ce466e99fa16eaaf12438a21c8b1aa3d5b3e458f598b0",
+      "bytes": 3852
+    },
+    {
+      "path": "tests/test_core.py",
+      "sha256": "44b54ca95396850e8f47af3a22c11426e3189677b134b20c373a94ffba9117aa",
+      "bytes": 12760
+    },
+    {
+      "path": "tests/test_deep_3pass.py",
+      "sha256": "75467f0fe572b1bd4a837b8e43f4e61e33cb4e6e72387947ac639510a4620737",
+      "bytes": 5349
+    },
+    {
+      "path": "tests/test_dwg_fallback.py",
+      "sha256": "81f887f2bf574998540688d63507a4fa84a2619de4dcc0fc25740d2eafa5c9e8",
+      "bytes": 1575
+    },
+    {
+      "path": "tests/test_field_regressions.py",
+      "sha256": "6006f7ec2b229cc74d1a02dea660a701c773b412e4a32cae2560cd8500e7eb09",
+      "bytes": 5253
+    },
+    {
+      "path": "tests/test_github_optimization.py",
+      "sha256": "d23e8e6a5edd0d386a28ab3130f8f13950e461c8a3dc22f88d890c96a1d212e5",
+      "bytes": 5984
+    },
+    {
+      "path": "tests/test_resolution_performance.py",
+      "sha256": "377524c4adb9393bd5ef6817d8bbe90ff307c1f057571c13eca438cd1dffcf32",
+      "bytes": 6059
+    },
+    {
+      "path": "tests/test_state.py",
+      "sha256": "4508309cf7db9c985fe6ad99811b02f940257b02538d49fcab6a0415bfa808e0",
+      "bytes": 2036
+    },
+    {
+      "path": "tests/test_ui_contract.py",
+      "sha256": "455ddcb316a7714b4dc027b59cb1ee79cbf0afce1472df9c9739b32fcd53c270",
+      "bytes": 5664
+    },
+    {
+      "path": "tests/test_ui_mcp_guidelines.py",
+      "sha256": "6b04b5a5ee6a62c4b2dbcee3620d80e65d0005241f42f22a4f0e3da761ad1e18",
+      "bytes": 5767
+    },
+    {
+      "path": "tests/test_ui_qt_mcp_workflows.py",
+      "sha256": "c1b8aaf38edb0bfb4bc473ac72d4875a647132eae24944980d472bfec64fd51f",
+      "bytes": 6275
+    }
+  ],
+  "ui_ux_mcp_guidance_sources": [
+    "https://github.com/redf0x1/ui-ux-pro-mcp",
+    "https://github.com/com55/pyside6-mcp"
+  ],
+  "ui_ux_regression_tests": "157/157 PASS; Qt GUI runtime NOT RUN",
+  "mcp_server_installed": false,
+  "windows_gui_qa": "NOT RUN",
+  "new_ui_workflow_test_count": 12
+}

@@ -1,0 +1,610 @@
+--- baseline/drawing_editor/window.py
++++ candidate/drawing_editor/window.py
+@@ -23,6 +23,7 @@
+ from .state import DrawingState
+ from .cad_catalog import read_ascii_dxf_layers
+ from .ui_design import THEMES, panel_layout
++from .ui_interaction import matching_editable_layers, file_add_status
+ 
+ ASSETS = Path(__file__).resolve().parent.parent / 'assets'
+ 
+@@ -369,10 +370,12 @@
+         toolbar.setIconSize(QSize(19, 19))
+         self.addToolBar(toolbar)
+         self.add_action = toolbar.addAction(self._icon('add'), '도면 추가')
++        self.add_action.setObjectName('addDrawingAction')
+         self.add_action.setToolTip('PDF, DXF, DWG 도면 추가 (Ctrl+O)')
+         self.add_action.setShortcut('Ctrl+O')
+         self.add_action.triggered.connect(self.open_files)
+         self.remove_action = toolbar.addAction(self._icon('remove'), '현재 도면 제거')
++        self.remove_action.setObjectName('removeCurrentDrawingAction')
+         self.remove_action.setToolTip('왼쪽 목록에서 현재 활성 도면 1개만 제거합니다. 원본 파일은 삭제되지 않습니다.')
+         self.remove_action.triggered.connect(self.remove_current)
+         toolbar.addSeparator()
+@@ -385,7 +388,8 @@
+         self.light_button = QPushButton('라이트')
+         self.dark_button = QPushButton('다크')
+         for button, icon_name in ((self.light_button, 'sun'), (self.dark_button, 'moon')):
+-            button.setObjectName('themeButton')
++            button.setObjectName(f'{icon_name}ThemeButton')
++            button.setProperty('uxRole', 'themeButton')
+             button.setCheckable(True)
+             button.setIcon(self._icon(icon_name))
+             button.setIconSize(QSize(16,16))
+@@ -426,6 +430,7 @@
+         files_frame, files_layout = self._panel('01   도면 파일')
+         files_frame.setFixedWidth(248)
+         self._files_panel = files_frame
++        files_frame.setObjectName('filesPane')
+         self.file_count = QLabel('전체 0개 · 선택 0개')
+         self.file_count.setObjectName('hint')
+         files_layout.addWidget(self.file_count)
+@@ -443,18 +448,34 @@
+         file_actions = QHBoxLayout()
+         file_actions.setSpacing(5)
+         self.select_all_button = QPushButton('전체 선택')
+-        self.select_all_button.setObjectName('subAction')
++        self.select_all_button.setObjectName('fileSelectAllButton')
++        self.select_all_button.setProperty('uxRole', 'subAction')
+         self.select_all_button.setIcon(self._icon('select_all'))
+         self.select_all_button.setToolTip('목록의 모든 파일을 일괄 작업 대상으로 선택')
+         self.select_all_button.clicked.connect(self.file_list.selectAll)
+         file_actions.addWidget(self.select_all_button)
+         self.clear_selection_button = QPushButton('선택 해제')
+-        self.clear_selection_button.setObjectName('subAction')
++        self.clear_selection_button.setObjectName('fileClearSelectionButton')
++        self.clear_selection_button.setProperty('uxRole', 'subAction')
+         self.clear_selection_button.setIcon(self._icon('deselect'))
+         self.clear_selection_button.setToolTip('선택한 일괄 작업 대상을 해제')
+         self.clear_selection_button.clicked.connect(self.file_list.clearSelection)
+         file_actions.addWidget(self.clear_selection_button)
+         files_layout.addLayout(file_actions)
++        self.remove_selected_button = QPushButton('선택 도면 제거')
++        self.remove_selected_button.setObjectName('fileRemoveSelectedButton')
++        self.remove_selected_button.setProperty('uxRole', 'subAction')
++        self.remove_selected_button.setIcon(self._icon('remove'))
++        self.remove_selected_button.setToolTip('선택한 항목을 목록에서 제거합니다. 원본 파일은 삭제하지 않습니다. (파일 목록에서 Delete)')
++        self.remove_selected_button.setAccessibleName('선택한 도면을 작업 목록에서 제거')
++        self.remove_selected_button.clicked.connect(self.remove_selected_files)
++        files_layout.addWidget(self.remove_selected_button)
++        self.remove_selected_action = QAction('선택 도면 제거', self.file_list)
++        self.remove_selected_action.setObjectName('fileRemoveSelectedAction')
++        self.remove_selected_action.setShortcut('Delete')
++        self.remove_selected_action.setShortcutContext(Qt.ShortcutContext.WidgetShortcut)
++        self.remove_selected_action.triggered.connect(self.remove_selected_files)
++        self.file_list.addAction(self.remove_selected_action)
+         self.file_selection_hint = QLabel('Ctrl: 개별 선택  ·  Shift: 연속 선택')
+         self.file_selection_hint.setObjectName('hint')
+         files_layout.addWidget(self.file_selection_hint)
+@@ -464,6 +485,7 @@
+         layers_frame, layers_layout = self._panel('02   레이어 및 규칙')
+         layers_frame.setFixedWidth(350)
+         self._layers_panel = layers_frame
++        layers_frame.setObjectName('layersPane')
+         self.layer_help = QLabel('도면을 선택하면 레이어가 나타납니다.')
+         self.layer_help.setObjectName('hint')
+         layers_layout.addWidget(self.layer_help)
+@@ -478,18 +500,43 @@
+         layer_actions = QHBoxLayout()
+         layer_actions.setSpacing(5)
+         self.layer_on_button = QPushButton('전체 켜기')
+-        self.layer_on_button.setObjectName('subAction')
++        self.layer_on_button.setObjectName('allLayersOnButton')
++        self.layer_on_button.setProperty('uxRole', 'subAction')
+         self.layer_on_button.setIcon(self._icon('visible'))
+         self.layer_on_button.setToolTip('검색 결과와 관계없이 현재 도면의 모든 변경 가능한 레이어를 켭니다.')
+         self.layer_on_button.clicked.connect(lambda:self.set_all_layers(True))
+         layer_actions.addWidget(self.layer_on_button)
+         self.layer_off_button = QPushButton('전체 끄기')
+-        self.layer_off_button.setObjectName('subAction')
++        self.layer_off_button.setObjectName('allLayersOffButton')
++        self.layer_off_button.setProperty('uxRole', 'subAction')
+         self.layer_off_button.setIcon(self._icon('hidden'))
+         self.layer_off_button.setToolTip('검색 결과와 관계없이 현재 도면의 모든 변경 가능한 레이어를 끕니다.')
+         self.layer_off_button.clicked.connect(lambda:self.set_all_layers(False))
+         layer_actions.addWidget(self.layer_off_button)
+         layers_layout.addLayout(layer_actions)
++        # Explicit search-scope actions. Global ON/OFF buttons stay global.
++        # Filtered actions are not shown until a query has actual matches.
++        self.filtered_actions = QWidget()
++        self.filtered_actions.setObjectName('filteredLayerActions')
++        filtered_layout = QHBoxLayout(self.filtered_actions)
++        filtered_layout.setContentsMargins(0, 0, 0, 0)
++        filtered_layout.setSpacing(5)
++        self.filter_on_button = QPushButton('검색 결과 켜기')
++        self.filter_on_button.setObjectName('filteredLayersOnButton')
++        self.filter_on_button.setProperty('uxRole', 'subAction')
++        self.filter_on_button.setAccessibleName('검색한 레이어만 켜기')
++        self.filter_on_button.setToolTip('현재 검색에 일치하는 변경 가능한 레이어만 켭니다. 숨겨진 다른 레이어는 그대로 유지합니다.')
++        self.filter_on_button.clicked.connect(lambda: self.set_filtered_layers(True))
++        self.filter_off_button = QPushButton('검색 결과 끄기')
++        self.filter_off_button.setObjectName('filteredLayersOffButton')
++        self.filter_off_button.setProperty('uxRole', 'subAction')
++        self.filter_off_button.setAccessibleName('검색한 레이어만 끄기')
++        self.filter_off_button.setToolTip('현재 검색에 일치하는 변경 가능한 레이어만 끕니다. 숨겨진 다른 레이어는 그대로 유지합니다.')
++        self.filter_off_button.clicked.connect(lambda: self.set_filtered_layers(False))
++        filtered_layout.addWidget(self.filter_on_button)
++        filtered_layout.addWidget(self.filter_off_button)
++        layers_layout.addWidget(self.filtered_actions)
++        self.filtered_actions.hide()
+         self.rule_selector = QComboBox()
+         self.rule_selector.setObjectName('ruleSelector')
+         self.rule_selector.setToolTip('현재 도면에서 저장한 레이어 ON/OFF 규칙을 선택합니다.')
+@@ -498,25 +545,29 @@
+         rule_actions = QHBoxLayout()
+         rule_actions.setSpacing(5)
+         self.save_rule_button = QPushButton('저장')
+-        self.save_rule_button.setObjectName('subAction')
++        self.save_rule_button.setObjectName('saveLayerRuleButton')
++        self.save_rule_button.setProperty('uxRole', 'subAction')
+         self.save_rule_button.setIcon(self._icon('save'))
+         self.save_rule_button.setToolTip('현재 도면의 레이어 ON/OFF 설정을 규칙으로 저장')
+         self.save_rule_button.clicked.connect(self.save_rule)
+         rule_actions.addWidget(self.save_rule_button)
+         self.apply_rule_button = QPushButton('선택 적용')
+-        self.apply_rule_button.setObjectName('subAction')
++        self.apply_rule_button.setObjectName('applyLayerRuleButton')
++        self.apply_rule_button.setProperty('uxRole', 'subAction')
+         self.apply_rule_button.setIcon(self._icon('apply'))
+         self.apply_rule_button.setToolTip('저장된 규칙을 왼쪽에서 선택한 도면들에 적용')
+         self.apply_rule_button.clicked.connect(self.apply_rule_to_selected)
+         rule_actions.addWidget(self.apply_rule_button)
+         self.delete_rule_button = QPushButton('삭제')
+-        self.delete_rule_button.setObjectName('subAction')
++        self.delete_rule_button.setObjectName('deleteLayerRuleButton')
++        self.delete_rule_button.setProperty('uxRole', 'subAction')
+         self.delete_rule_button.setIcon(self._icon('delete'))
+         self.delete_rule_button.setToolTip('현재 선택한 저장 규칙 삭제. 원본 도면은 변경되지 않습니다.')
+         self.delete_rule_button.clicked.connect(self.delete_rule)
+         rule_actions.addWidget(self.delete_rule_button)
+         layers_layout.addLayout(rule_actions)
+         self.auto_apply_rules = QCheckBox('새 도면에 선택 규칙 자동 적용')
++        self.auto_apply_rules.setObjectName('autoApplyLayerRule')
+         self.auto_apply_rules.setChecked(self._settings.value('auto_apply_rules',False,type=bool))
+         self.auto_apply_rules.toggled.connect(self._toggle_auto_apply)
+         layers_layout.addWidget(self.auto_apply_rules)
+@@ -551,7 +602,8 @@
+         preview_controls = QHBoxLayout()
+         preview_controls.setSpacing(5)
+         self.page_prev_button = QToolButton()
+-        self.page_prev_button.setObjectName('viewButton')
++        self.page_prev_button.setObjectName('previousPageButton')
++        self.page_prev_button.setProperty('uxRole', 'viewButton')
+         self.page_prev_button.setIcon(self._icon('prev'))
+         self.page_prev_button.setToolTip('이전 페이지 (Ctrl+PgUp)')
+         self.page_prev_button.setAccessibleName('이전 페이지')
+@@ -563,7 +615,8 @@
+         self.page_info.setMinimumWidth(54)
+         preview_controls.addWidget(self.page_info)
+         self.page_next_button = QToolButton()
+-        self.page_next_button.setObjectName('viewButton')
++        self.page_next_button.setObjectName('nextPageButton')
++        self.page_next_button.setProperty('uxRole', 'viewButton')
+         self.page_next_button.setIcon(self._icon('next'))
+         self.page_next_button.setToolTip('다음 페이지 (Ctrl+PgDown)')
+         self.page_next_button.setAccessibleName('다음 페이지')
+@@ -571,7 +624,8 @@
+         preview_controls.addWidget(self.page_next_button)
+         preview_controls.addStretch(1)
+         self.zoom_out_button = QToolButton()
+-        self.zoom_out_button.setObjectName('viewButton')
++        self.zoom_out_button.setObjectName('zoomOutButton')
++        self.zoom_out_button.setProperty('uxRole', 'viewButton')
+         self.zoom_out_button.setIcon(self._icon('zoom_out'))
+         self.zoom_out_button.setToolTip('축소')
+         self.zoom_out_button.setAccessibleName('미리보기 축소')
+@@ -583,14 +637,16 @@
+         self.zoom_label.setMinimumWidth(64)
+         preview_controls.addWidget(self.zoom_label)
+         self.zoom_in_button = QToolButton()
+-        self.zoom_in_button.setObjectName('viewButton')
++        self.zoom_in_button.setObjectName('zoomInButton')
++        self.zoom_in_button.setProperty('uxRole', 'viewButton')
+         self.zoom_in_button.setIcon(self._icon('zoom_in'))
+         self.zoom_in_button.setToolTip('확대')
+         self.zoom_in_button.setAccessibleName('미리보기 확대')
+         self.zoom_in_button.clicked.connect(lambda:self.canvas.zoom(1.25))
+         preview_controls.addWidget(self.zoom_in_button)
+         self.fit_button = QPushButton('맞춤')
+-        self.fit_button.setObjectName('viewButton')
++        self.fit_button.setObjectName('fitPreviewButton')
++        self.fit_button.setProperty('uxRole', 'viewButton')
+         self.fit_button.setIcon(self._icon('fit'))
+         self.fit_button.setToolTip('전체 도면을 화면에 맞춤 (Ctrl+0)')
+         self.fit_button.setAccessibleName('화면에 전체 도면 맞춤')
+@@ -631,7 +687,9 @@
+         controls.setSpacing(8)
+         controls.addWidget(QLabel('형식'))
+         self.png_button = QRadioButton('PNG')
++        self.png_button.setObjectName('exportPngRadio')
+         self.jpg_button = QRadioButton('JPG')
++        self.jpg_button.setObjectName('exportJpgRadio')
+         self.png_button.setChecked(True)
+         group = QButtonGroup(footer)
+         group.addButton(self.png_button)
+@@ -654,18 +712,21 @@
+         self.resolution_combo.setMinimumWidth(190)
+         controls.addWidget(self.resolution_combo)
+         self.custom_width = QSpinBox()
++        self.custom_width.setObjectName('customExportWidth')
+         self.custom_width.setRange(1, 2_147_483_647)
+         self.custom_width.setValue(1920)
+         self.custom_width.setSuffix(' px')
+         self.custom_width.setPrefix('W ')
+         self.custom_width.setMinimumWidth(116)
+         self.custom_height = QSpinBox()
++        self.custom_height.setObjectName('customExportHeight')
+         self.custom_height.setRange(1, 2_147_483_647)
+         self.custom_height.setValue(1080)
+         self.custom_height.setSuffix(' px')
+         self.custom_height.setPrefix('H ')
+         self.custom_height.setMinimumWidth(116)
+         self.custom_dpi = QSpinBox()
++        self.custom_dpi.setObjectName('customExportDpi')
+         self.custom_dpi.setRange(36, 2400)
+         self.custom_dpi.setValue(300)
+         self.custom_dpi.setSuffix(' DPI')
+@@ -684,6 +745,7 @@
+         destination.setSpacing(7)
+         destination.addWidget(QLabel('저장 위치'))
+         self.output_folder = QLineEdit()
++        self.output_folder.setObjectName('outputFolderPath')
+         default_dir = (QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DocumentsLocation)
+                        or str(Path.home()))
+         self.output_folder.setText(str(self._settings.value('output_folder',default_dir)))
+@@ -693,7 +755,8 @@
+         self.output_folder.textChanged.connect(self.output_folder.setToolTip)
+         destination.addWidget(self.output_folder, 1)
+         self.browse_button = QPushButton('찾아보기')
+-        self.browse_button.setObjectName('subAction')
++        self.browse_button.setObjectName('browseOutputFolderButton')
++        self.browse_button.setProperty('uxRole', 'subAction')
+         self.browse_button.setIcon(self._icon('folder'))
+         self.browse_button.setToolTip('이미지 저장 폴더 선택')
+         self.browse_button.clicked.connect(self.pick_output_dir)
+@@ -703,7 +766,8 @@
+         self.export_target_hint.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+         destination.addWidget(self.export_target_hint)
+         self.export_button = QPushButton('선택 도면 추출')
+-        self.export_button.setObjectName('primary')
++        self.export_button.setObjectName('exportDrawingsButton')
++        self.export_button.setProperty('uxRole', 'primary')
+         self.export_button.setIcon(self._icon('export_white'))
+         self.export_button.setIconSize(QSize(19,19))
+         self.export_button.setMinimumWidth(166)
+@@ -735,6 +799,9 @@
+         self.export_target_hint.setVisible(width >= 1050)
+         narrow = width < 900
+         self.select_all_button.setText('전체' if narrow else '전체 선택')
++        self.remove_selected_button.setText('선택 제거' if narrow else '선택 도면 제거')
++        self.filter_on_button.setText('검색 켜기' if narrow else '검색 결과 켜기')
++        self.filter_off_button.setText('검색 끄기' if narrow else '검색 결과 끄기')
+         self.clear_selection_button.setText('해제' if narrow else '선택 해제')
+         self.layer_on_button.setText('켜기' if narrow else '전체 켜기')
+         self.layer_off_button.setText('끄기' if narrow else '전체 끄기')
+@@ -742,7 +809,9 @@
+ 
+     def _configure_tab_order(self):
+         order = (self.file_list, self.select_all_button, self.clear_selection_button,
++                 self.remove_selected_button,
+                  self.layer_search, self.layer_on_button, self.layer_off_button,
++                 self.filter_on_button, self.filter_off_button,
+                  self.rule_selector, self.save_rule_button, self.apply_rule_button,
+                  self.delete_rule_button, self.auto_apply_rules, self.layer_list,
+                  self.page_prev_button, self.page_next_button, self.zoom_out_button,
+@@ -777,6 +846,9 @@
+                 matches += 1
+         self._update_layer_summary(matches=matches)
+         self.layer_empty_hint.setVisible(bool(text) and matches == 0 and total > 0)
++        self.filtered_actions.setVisible(bool(text) and matches > 0 and self.current_doc() is not None
++                                         and self.current_doc().loaded)
++        self._sync_actions()
+ 
+     def _update_layer_summary(self, matches=None):
+         doc = self.current_doc()
+@@ -802,12 +874,18 @@
+         selected = self.selected_docs()
+         can_export = bool(selected) and all(d.loaded for d in selected)
+         has_rule = self._selected_rule() is not None
+-        self.remove_action.setEnabled(doc is not None)
++        self.remove_action.setEnabled(doc is not None and not self._export_busy)
+         self.select_all_button.setEnabled(self.file_list.count() > 0)
+-        self.clear_selection_button.setEnabled(bool(self.file_list.selectedItems()))
++        has_selection = bool(self.file_list.selectedItems())
++        self.clear_selection_button.setEnabled(has_selection)
++        self.remove_selected_button.setEnabled(has_selection and not self._export_busy)
++        self.remove_selected_action.setEnabled(has_selection and not self._export_busy)
+         for button in (self.layer_on_button, self.layer_off_button, self.save_rule_button,
+                        self.layer_search):
+             button.setEnabled(valid_current)
++        filtered_keys = matching_editable_layers(doc.layers(), self.layer_search.text()) if valid_current else ()
++        self.filter_on_button.setEnabled(bool(filtered_keys))
++        self.filter_off_button.setEnabled(bool(filtered_keys))
+         self.apply_rule_button.setEnabled(has_rule and can_export)
+         self.delete_rule_button.setEnabled(has_rule and not self._rule_load_error)
+         self.page_prev_button.setEnabled(valid_current and doc.page_index > 0)
+@@ -871,15 +949,15 @@
+             QWidget#drawingRoot QPushButton:hover,QWidget#drawingRoot QToolButton:hover,QToolBar#toolbar QPushButton:hover {{background:{hover};border-color:{primary};}}
+             QWidget#drawingRoot QPushButton:focus,QWidget#drawingRoot QToolButton:focus,QToolBar#toolbar QPushButton:focus {{border:2px solid {primary};padding:5px 8px;}}
+             QWidget#drawingRoot QPushButton:disabled,QWidget#drawingRoot QToolButton:disabled,QToolBar#toolbar QPushButton:disabled {{color:{muted};background:{bg};border-color:{border};}}
+-            QToolBar#toolbar QPushButton#themeButton {{padding:6px 10px;}}
+-            QToolBar#toolbar QPushButton#themeButton[active="true"] {{color:{active_text};background:{highlight};border-color:{primary};font-weight:700;}}
+-            QWidget#drawingRoot QPushButton#subAction {{padding:5px 6px;}}
+-            QWidget#drawingRoot QPushButton#viewButton,QWidget#drawingRoot QToolButton#viewButton {{padding:3px 6px;min-height:24px;}}
+-            QWidget#drawingRoot QPushButton#primary {{background:{primary};border-color:{primary};color:#FFFFFF;font-weight:700;padding:8px 12px;min-height:26px;}}
+-            QWidget#drawingRoot QPushButton#primary:hover {{background:{primary_hover};border-color:{primary_hover};}}
+-            QWidget#drawingRoot QPushButton#primary:focus {{border:2px solid {fg};padding:7px 11px;}}
+-            QWidget#drawingRoot QPushButton#primary:disabled {{background:#80746E;border-color:#80746E;color:#FFFFFF;}}
+-            QFrame#pane,QGroupBox#exportPanel {{background:{panel};border:1px solid {border};border-radius:8px;}}
++            QToolBar#toolbar QPushButton[uxRole="themeButton"] {{padding:6px 10px;}}
++            QToolBar#toolbar QPushButton[uxRole="themeButton"][active="true"] {{color:{active_text};background:{highlight};border-color:{primary};font-weight:700;}}
++            QWidget#drawingRoot QPushButton[uxRole="subAction"] {{padding:5px 6px;}}
++            QWidget#drawingRoot QPushButton[uxRole="viewButton"],QWidget#drawingRoot QToolButton[uxRole="viewButton"] {{padding:3px 6px;min-height:24px;}}
++            QWidget#drawingRoot QPushButton[uxRole="primary"] {{background:{primary};border-color:{primary};color:#FFFFFF;font-weight:700;padding:8px 12px;min-height:26px;}}
++            QWidget#drawingRoot QPushButton[uxRole="primary"]:hover {{background:{primary_hover};border-color:{primary_hover};}}
++            QWidget#drawingRoot QPushButton[uxRole="primary"]:focus {{border:2px solid {fg};padding:7px 11px;}}
++            QWidget#drawingRoot QPushButton[uxRole="primary"]:disabled {{background:#80746E;border-color:#80746E;color:#FFFFFF;}}
++            QFrame#filesPane,QFrame#layersPane,QFrame#pane,QGroupBox#exportPanel {{background:{panel};border:1px solid {border};border-radius:8px;}}
+             QGroupBox#exportPanel {{margin-top:11px;font-weight:700;}}
+             QGroupBox#exportPanel::title {{subcontrol-origin:margin;left:12px;padding:0 6px;}}
+             QLabel#panelHeader {{font-size:14px;font-weight:700;color:{fg};}}
+@@ -1060,16 +1138,18 @@
+ 
+     def add_files(self, paths):
+         """Register files immediately; parse large CAD/PDF metadata off the GUI thread."""
+-        first, errors = None, []
++        first, errors, added, duplicates = None, [], 0, 0
+         for path in paths:
+-            key = str(Path(path).expanduser().resolve())
+-            if key in self.documents:
+-                continue
+             try:
++                key = str(Path(path).expanduser().resolve())
++                if key in self.documents:
++                    duplicates += 1
++                    continue
+                 state = DrawingState(key)
+                 state.pending_rule = (self._selected_rule()
+                     if self.auto_apply_rules.isChecked() else None)
+                 self.documents[key] = state
++                added += 1
+                 item = QListWidgetItem(f'[{state.kind.upper()}]  {state.path.name}  (읽는 중)')
+                 item.setIcon(self._icon('drawing'))
+                 item.setData(Qt.ItemDataRole.UserRole, key)
+@@ -1081,14 +1161,14 @@
+                 task = CatalogTask(self._catalog_seq, key)
+                 self._catalog_paths[task.seq] = key
+                 self._submit_catalog(task)
+-            except DrawingError as exc:
++            except (DrawingError, OSError, ValueError) as exc:
+                 errors.append(str(exc))
+         self._update_file_selection_count()
+         if first is not None and self.file_list.currentItem() is None:
+             self.file_list.setCurrentItem(first)
+-        if first is not None:
++        if added or duplicates or errors:
+             self.statusBar().showMessage(
+-                f'도면 {len(self.documents)}개 등록 · 원본 분석은 백그라운드에서 순차 진행', 10000)
++                file_add_status(added=added, duplicates=duplicates, rejected=len(errors)), 10000)
+         if errors:
+             QMessageBox.warning(self, '도면 추가 결과', '\n\n'.join(errors[:7]))
+ 
+@@ -1121,21 +1201,62 @@
+         self._update_file_selection_count()
+ 
+     def remove_current(self):
+-        item=self.file_list.currentItem()
+-        if not item:return
+-        key=item.data(Qt.ItemDataRole.UserRole)
+-        doc=self.documents.pop(key,None)
+-        if doc:doc.close()
+-        self.file_list.takeItem(self.file_list.row(item))
+-        self._update_file_selection_count()
++        """Toolbar command removes exactly the active row, not a batch selection."""
++        item = self.file_list.currentItem()
++        if item is not None:
++            self._remove_file_items((item,))
++
++    def remove_selected_files(self):
++        """Explicit multi-selection command; never deletes an input file on disk."""
++        items = tuple(self.file_list.selectedItems())
++        if not items:
++            self.statusBar().showMessage('먼저 파일 목록에서 제거할 도면을 선택하세요.', 6000)
++            return
++        if len(items) > 1:
++            answer = QMessageBox.question(
++                self, '선택 도면 제거 확인',
++                f'{len(items)}개 도면을 작업 목록에서 제거할까요?\n원본 파일은 삭제되지 않습니다.',
++                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
++                QMessageBox.StandardButton.No)
++            if answer != QMessageBox.StandardButton.Yes:
++                return
++        self._remove_file_items(items)
++
++    def _remove_file_items(self, items):
++        """Prevent intermediate currentChanged signals from rendering removed files."""
++        if self._export_busy:
++            self.statusBar().showMessage('이미지 추출 중에는 파일을 제거할 수 없습니다. 완료 또는 취소 후 다시 시도하세요.', 7000)
++            return
++        rows = sorted({self.file_list.row(item) for item in items if self.file_list.row(item) >= 0},
++                      reverse=True)
++        if not rows:
++            return
++        self.file_list.blockSignals(True)
++        try:
++            for row in rows:
++                item = self.file_list.takeItem(row)
++                key = item.data(Qt.ItemDataRole.UserRole)
++                doc = self.documents.pop(key, None)
++                if doc is not None:
++                    doc.close()
++            if self.file_list.count() > 0 and self.file_list.currentItem() is None:
++                self.file_list.setCurrentRow(0)
++        finally:
++            self.file_list.blockSignals(False)
++        # Invalidate in-flight previews, even if the new active row is not loaded.
++        self._preview_seq += 1
++        self._detail_seq += 1
++        self.canvas.clear_preview()
++        self.layer_list.clear()
++        self._selection_changed(self.file_list.currentItem(), None)
+         if self.current_doc() is None:
+-            self.canvas.clear_preview();self.layer_list.clear()
+             self.view_info.setText('도면을 추가해 주세요')
+-            self.view_status.setText('미리보기 대기');self.page_info.setText('0 / 0')
+-            self._preview_seq+=1;self._detail_seq+=1
++            self.view_status.setText('미리보기 대기')
++            self.page_info.setText('0 / 0')
+             self._update_layer_summary()
+             self._update_zoom_label()
+-        self._sync_actions()
++        self._update_file_selection_count()
++        self.statusBar().showMessage(f'{len(rows)}개 도면을 목록에서 제거했습니다. 원본은 유지됩니다.', 8000)
+ 
+     def _selection_changed(self,current,previous):
+         doc=self.current_doc()
+@@ -1144,6 +1265,10 @@
+         self.layer_search.blockSignals(True)
+         self.layer_search.clear()
+         self.layer_search.blockSignals(False)
++        if doc is None:
++            self.view_info.setText('도면을 추가해 주세요')
++            self.page_info.setText('0 / 0')
++            self.view_status.setText('미리보기 대기')
+         if doc is not None and not doc.loaded:
+             self.layer_list.clear()
+             self.view_info.setText(doc.path.name)
+@@ -1191,6 +1316,28 @@
+             QMessageBox.warning(self,'레이어 오류',str(exc))
+             self._selection_changed(self.file_list.currentItem(),None)
+ 
++    def set_filtered_layers(self, visible):
++        """Change only matched unlocked layers; preserve invisible search exclusions."""
++        doc = self.current_doc()
++        if doc is None or not doc.loaded:
++            return
++        matches = matching_editable_layers(doc.layers(), self.layer_search.text())
++        if not matches:
++            self.statusBar().showMessage('검색과 일치하는 변경 가능한 레이어가 없습니다.', 6000)
++            return
++        current = doc.states()
++        changes = {key: bool(visible) for key in matches if current[key] != bool(visible)}
++        if not changes:
++            self.statusBar().showMessage('검색된 레이어가 이미 요청한 상태입니다.', 6000)
++            return
++        doc.apply_snapshot(changes)
++        self._sync_current_layer_rows()
++        self._update_layer_summary()
++        self.request_preview()
++        self.statusBar().showMessage(
++            f'검색 결과 {len(matches)}개 중 {len(changes)}개 레이어 ' +
++            ('표시' if visible else '숨김') + ' · 다른 레이어는 변경하지 않음', 9000)
++
+     def set_all_layers(self,visible):
+         doc=self.current_doc()
+         if not doc:return
+@@ -1333,6 +1480,7 @@
+         self.export_button.setIcon(self._icon('stop_white'))
+         self.progress.setValue(0);self.progress.show()
+         self.statusBar().showMessage(f'선택 도면 {len(jobs)}개 · {self.resolution_combo.currentText()} 추출 중…')
++        self._sync_actions()
+         self._submit(RenderTask('batch_export',self._export_seq,'',{},0,
+                      options=opts,cancel_event=self._export_cancel,jobs=jobs))
+ 
+--- baseline/quality/qa_gui_layout.py
++++ candidate/quality/qa_gui_layout.py
+@@ -16,7 +16,7 @@
+ import sys
+ 
+ from PySide6.QtCore import QPoint, QRect
+-from PySide6.QtWidgets import QApplication
++from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QLineEdit, QComboBox, QListWidget, QTreeWidget, QSpinBox, QRadioButton, QCheckBox
+ 
+ # Allow invocation from the repository root or an arbitrary working directory.
+ ROOT = Path(__file__).resolve().parents[1]
+@@ -35,10 +35,15 @@
+     app.processEvents()
+     targets = {
+         'files': window.file_list,
++        'selected_remove': window.remove_selected_button,
++        'all_layers_on': window.layer_on_button,
++        'all_layers_off': window.layer_off_button,
+         'layer_search': window.layer_search,
+         'layers': window.layer_list,
++        'rule_apply': window.apply_rule_button,
+         'preview': window.canvas,
+         'export': window.export_button,
++        'output_browse': window.browse_button,
+         'output_folder': window.output_folder,
+         'resolution': window.resolution_combo,
+     }
+@@ -60,6 +65,29 @@
+         }
+     if window.canvas.width() < 300:
+         results['preview']['pass'] = False
++    # Qt-MCP-inspired introspection: stable object names, visibility, geometry,
++    # enabled state and accessibility, not just a screenshot of the top window.
++    classes = (QPushButton, QLineEdit, QComboBox, QListWidget, QTreeWidget,
++               QSpinBox, QRadioButton, QCheckBox)
++    interactive = []
++    for widget in window.findChildren(QWidget):
++        if not isinstance(widget, classes):
++            continue
++        name = widget.objectName()
++        if not name or name.startswith('qt_'):
++            continue
++        point = widget.mapTo(window, QPoint(0, 0))
++        interactive.append({
++            'name': name,
++            'type': type(widget).__name__,
++            'parent': widget.parentWidget().objectName() if widget.parentWidget() else '',
++            'geometry': [point.x(), point.y(), widget.width(), widget.height()],
++            'visible': widget.isVisibleTo(window),
++            'enabled': widget.isEnabled(),
++            'accessible_name': widget.accessibleName(),
++        })
++    names = [entry['name'] for entry in interactive]
++    repeated = sorted({name for name in names if names.count(name) > 1})
+     output.mkdir(parents=True, exist_ok=True)
+     screenshot = output / f'ui_{scale_label}_{width}x{height}.png'
+     screenshot_ok = window.grab().save(str(screenshot), 'PNG')
+@@ -72,8 +100,10 @@
+         'window_logical_size': [window.width(), window.height()],
+         'viewport_scroll_needed': window.work_scroll.verticalScrollBar().maximum() > 0,
+         'widgets': results,
++        'interactive_widget_tree': interactive,
++        'duplicate_interactive_object_names': repeated,
+         'screenshot': screenshot.name if screenshot_ok else None,
+-        'pass': bool(screenshot_ok) and all(v['pass'] for v in results.values()),
++        'pass': bool(screenshot_ok) and not repeated and all(v['pass'] for v in results.values()),
+         'limitations': 'Screen capture and geometry only; Windows DPI and visual clipping must be manually reviewed.',
+     }
+     (output / f'ui_{scale_label}_{width}x{height}.json').write_text(
+--- baseline/RUN_UI_QA.cmd
++++ candidate/RUN_UI_QA.cmd
+@@ -5,11 +5,20 @@
+ REM QT_SCALE_FACTOR simulates scale, but real Windows display DPI must also be tested.
+ set "PYTHON=python"
+ if not "%~1"=="" set "PYTHON=%~1"
+-for %%S in (1 1.25 1.5 1.75) do (
+-  set "QT_SCALE_FACTOR=%%S"
+-  "%PYTHON%" "quality\qa_gui_layout.py" --width 1100 --height 700 --scale-label %%S
+-  if errorlevel 1 goto :failed
+-)
++REM Test small, medium and large logical windows at representative scales.
++REM These are simulated Qt scales, NOT proof of native Windows DPI compatibility.
++set "QT_SCALE_FACTOR=1"
++"%PYTHON%" "quality\qa_gui_layout.py" --width 760 --height 480 --scale-label 100_small
++if errorlevel 1 goto :failed
++set "QT_SCALE_FACTOR=1.25"
++"%PYTHON%" "quality\qa_gui_layout.py" --width 900 --height 650 --scale-label 125_compact
++if errorlevel 1 goto :failed
++set "QT_SCALE_FACTOR=1.5"
++"%PYTHON%" "quality\qa_gui_layout.py" --width 1120 --height 760 --scale-label 150_normal
++if errorlevel 1 goto :failed
++set "QT_SCALE_FACTOR=1.75"
++"%PYTHON%" "quality\qa_gui_layout.py" --width 1440 --height 850 --scale-label 175_wide
++if errorlevel 1 goto :failed
+ echo UI screenshot QA completed. Check quality\ui_qa_artifacts.
+ exit /b 0
+ :failed

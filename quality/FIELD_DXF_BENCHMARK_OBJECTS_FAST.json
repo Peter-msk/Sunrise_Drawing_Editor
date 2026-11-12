@@ -1,0 +1,38 @@
+{
+  "source_bytes": 421316933,
+  "source_sha256_before": "34ccb4cffee9d022ac489ab5a8a0f1e5f1eb46560d85bc66b2bbfd1bcd25eb49",
+  "catalog_seconds": 0.0073,
+  "layer_count": 290,
+  "initially_enabled_layers": 2,
+  "first_preview_seconds": 1.4672,
+  "first_preview_pixel_sha256": "48a12fbcfb4e8e99c2aedb405c399a471c024ba23bb26400c51e1c4aaaf0dfbf",
+  "first_preview_pixels": [
+    938,
+    700
+  ],
+  "rss_after_first_preview_mib": 192.15,
+  "selective": {
+    "total_records": 220350,
+    "selected_records": 39,
+    "staged_bytes": 1413788,
+    "blocks_pruned": true,
+    "stage_seconds": 1.2565
+  },
+  "repeated_preview_seconds": 9.4e-05,
+  "repeated_preview_equal": true,
+  "added_layer": {
+    "layer": "C0285311",
+    "seconds": 7.6177,
+    "pixel_changed": true,
+    "rss_mib": 280.7,
+    "selected_records": 9572,
+    "staged_bytes": 8987348,
+    "blocks_pruned": true
+  },
+  "added_layer_restore": {
+    "seconds": 0.0001,
+    "pixel_identical": true
+  },
+  "source_sha256_after": "34ccb4cffee9d022ac489ab5a8a0f1e5f1eb46560d85bc66b2bbfd1bcd25eb49",
+  "source_unchanged": true
+}

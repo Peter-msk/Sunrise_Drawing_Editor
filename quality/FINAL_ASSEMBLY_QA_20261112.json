@@ -1,0 +1,39 @@
+{
+  "name": "Sunrise Drawing Editor final integrated source QA",
+  "date_kst": "2026-11-12",
+  "source_state": "FINAL DEVELOPMENT SOURCE / WINDOWS RELEASE GATE PENDING",
+  "baseline_drive_zip_sha256": "655f4d47b83aca64fcabdd89d5e1aea0939ff84930e0f80d9e4c5d49fd16892e",
+  "previous_candidate_zip_sha256": "b3d1e262a2567df95666f2b3ac6369d39409fc6794a4f96cbf25266218ced8c7",
+  "python": "3.13.5",
+  "os": "Linux-6.18.57-x86_64-with-glibc2.41",
+  "python_compileall": "PASS",
+  "unittest": {
+    "passed": 146,
+    "total": 146,
+    "status": "PASS"
+  },
+  "sample_smoke": {
+    "dxfs_pdfs": 2,
+    "clip_checks_per_format": 8,
+    "layer_toggle_restore_rgb_equal": true,
+    "rgb_and_fhd_png_jpg_output_file_hashes_equal": true,
+    "original_file_sha256_unchanged": true
+  },
+  "cad_displist_real_large_source_guard": {
+    "threshold_bytes": 100663296,
+    "source_above_guard_uses_threepass_renderer": true,
+    "regression_test": "test_large_source_dxf_keeps_threepass_renderer"
+  },
+  "field_402_mib_dxf": "NOT RUN",
+  "windows_pyinstaller_onefile_exe": "NOT RUN",
+  "windows_signtool": "NOT RUN",
+  "windows_high_dpi_gui": "NOT RUN",
+  "third_party_commercial_license": "PENDING",
+  "user_original_dxf_included": false,
+  "source_code_changed": [
+    "drawing_editor/core.py",
+    "tests/test_cad_view_cache_candidate.py"
+  ],
+  "source_sha256_manifest": "SOURCE_SHA256_MANIFEST.json",
+  "note": "Prior evidence in other docs is historical; do not combine Linux results with Windows or real 402MiB claims."
+}

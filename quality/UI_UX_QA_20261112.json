@@ -1,0 +1,41 @@
+{
+  "name": "Sunrise Drawing Editor UI/UX MCP guidance implementation QA",
+  "date_kst": "2026-11-12",
+  "source_baseline": "Sunrise_Drawing_Editor_Final_Integrated_Source_20261112.zip",
+  "source_baseline_sha256": "1031dd94c4c5f5d7fd3c8e2a547a81200b5e77241ac9ef9848b49dd25dc3ecb1",
+  "result": "UI/UX source candidate; Windows release approval pending",
+  "mcp_servers_executed": false,
+  "github_guidance": [
+    "https://github.com/redf0x1/ui-ux-pro-mcp",
+    "https://github.com/com55/pyside6-mcp"
+  ],
+  "python": "3.13.5",
+  "os": "Linux-6.18.57-x86_64-with-glibc2.41",
+  "unittest": {
+    "passed": 157,
+    "total": 157,
+    "status": "PASS",
+    "log": "quality/UI_UX_TESTS_20261112.log"
+  },
+  "compileall": "PASS",
+  "previous_engine_and_export_files_identical": true,
+  "modified_existing_paths_at_qa_time": [
+    "FINAL_SOURCE_HANDOVER.md",
+    "drawing_editor/window.py",
+    "tests/test_ui_contract.py"
+  ],
+  "added_paths_at_qa_time": [
+    "RUN_UI_QA.cmd",
+    "docs/UI_UX_MCP_REDESIGN_20261112.md",
+    "drawing_editor/ui_design.py",
+    "quality/UI_UX_TESTS_20261112.log",
+    "quality/qa_gui_layout.py",
+    "tests/test_ui_mcp_guidelines.py"
+  ],
+  "missing_from_baseline": [],
+  "windows_qt_gui_run": "NOT RUN (PySide6 unavailable in current Linux environment)",
+  "windows_exe_build_sign": "NOT RUN",
+  "field_dxf_402mib": "NOT RUN",
+  "optional_gui_qa_script": "quality/qa_gui_layout.py",
+  "original_source_zip_modified": false
+}

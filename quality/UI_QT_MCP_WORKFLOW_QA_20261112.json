@@ -1,0 +1,45 @@
+{
+  "source": "Sunrise_Drawing_Editor_UIUX_Optimized_Source_20261112.zip",
+  "design_references": [
+    {
+      "repo": "com55/pyside6-mcp",
+      "used": "widget state/geometry/accessible-name inspection concept",
+      "installed": false
+    },
+    {
+      "repo": "neatobandit0/qt-pilot",
+      "used": "unique Qt objectNames and screenshot contract",
+      "installed": false
+    },
+    {
+      "repo": "redf0x1/ui-ux-pro-mcp",
+      "used": "UX discoverability and workflow validation guidelines",
+      "installed": false
+    }
+  ],
+  "run_environment": {
+    "os": "Linux-6.18.57-x86_64-with-glibc2.41",
+    "python": "3.13.5",
+    "pyside6_installed": false
+  },
+  "regression": {
+    "tests_pass": 169,
+    "tests_failed": 0,
+    "command": "python -m unittest discover -s tests -q"
+  },
+  "engine_unchanged_sha256": {
+    "drawing_editor/core.py": true,
+    "drawing_editor/cad_selective.py": true,
+    "drawing_editor/cad_render_fast.py": true,
+    "drawing_editor/tiles.py": true,
+    "drawing_editor/batch.py": true,
+    "drawing_editor/cad_spatial.py": true,
+    "drawing_editor/state.py": true,
+    "BUILD_ONEFILE.cmd": true
+  },
+  "gui_screenshot": "NOT RUN (PySide6 unavailable)",
+  "windows_native_DPI": "NOT RUN",
+  "windows_Onefile": "NOT RUN",
+  "real_402MiB_DXF": "NOT RUN",
+  "official_release": "CANDIDATE ONLY"
+}

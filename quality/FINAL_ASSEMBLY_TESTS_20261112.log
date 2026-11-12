@@ -1,0 +1,7 @@
+Command: python -m unittest discover -s tests -q
+Platform: Linux-6.18.57-x86_64-with-glibc2.41
+Python: 3.13.5
+----------------------------------------------------------------------
+Ran 146 tests in 14.754s
+
+OK

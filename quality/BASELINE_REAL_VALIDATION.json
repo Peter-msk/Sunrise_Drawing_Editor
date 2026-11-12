@@ -1,0 +1,121 @@
+{
+  "source_bytes": 421316933,
+  "source_sha256_before": "34ccb4cffee9d022ac489ab5a8a0f1e5f1eb46560d85bc66b2bbfd1bcd25eb49",
+  "input_basename": "3구간 최종 철탑.dxf",
+  "catalog_seconds": 0.00739,
+  "layer_count": 290,
+  "default_on_layers": 2,
+  "states": {
+    "default": {
+      "size": [
+        938,
+        700
+      ],
+      "pixel_sha256": "48a12fbcfb4e8e99c2aedb405c399a471c024ba23bb26400c51e1c4aaaf0dfbf",
+      "seconds": 1.57301,
+      "rss_mib": 194.05,
+      "staged_bytes": 1413788,
+      "selected_records": 39
+    },
+    "insert_on": {
+      "size": [
+        843,
+        700
+      ],
+      "pixel_sha256": "9658d3fe016eca13e7d892e238e31fbbb5ef6f84c53a7be46e812fb10bb92b8d",
+      "seconds": 3.61161,
+      "rss_mib": 223.42,
+      "staged_bytes": 3153681,
+      "selected_records": 9572
+    },
+    "two_insert_layers": {
+      "size": [
+        843,
+        700
+      ],
+      "pixel_sha256": "2cb415c51a563d6e4ef40244dbc49783c8e263ebf283749480e404d72d36bb7c",
+      "seconds": 5.73084,
+      "rss_mib": 285.66,
+      "staged_bytes": 9352216,
+      "selected_records": 9786
+    },
+    "insert_restored": {
+      "size": [
+        843,
+        700
+      ],
+      "pixel_sha256": "9658d3fe016eca13e7d892e238e31fbbb5ef6f84c53a7be46e812fb10bb92b8d",
+      "seconds": 0.00525,
+      "rss_mib": 285.66,
+      "staged_bytes": 9352216,
+      "selected_records": 9786
+    },
+    "default_restored": {
+      "size": [
+        938,
+        700
+      ],
+      "pixel_sha256": "48a12fbcfb4e8e99c2aedb405c399a471c024ba23bb26400c51e1c4aaaf0dfbf",
+      "seconds": 0.01178,
+      "rss_mib": 286.24,
+      "staged_bytes": 9352216,
+      "selected_records": 9786
+    }
+  },
+  "zoom": {
+    "size": [
+      801,
+      601
+    ],
+    "pixel_sha256": "8da27c3412d593e500c4e2443cb52314b78dbc354a7a801a1ed22bbdfcc65bb3",
+    "seconds": 0.01512
+  },
+  "pan": {
+    "size": [
+      800,
+      600
+    ],
+    "pixel_sha256": "680a1c22a8e114ea0c637847e8cc506794073a55f4350364c8a0421e7dbcc8f0",
+    "seconds": 0.01329
+  },
+  "insert_zoom": {
+    "size": [
+      800,
+      600
+    ],
+    "pixel_sha256": "680a1c22a8e114ea0c637847e8cc506794073a55f4350364c8a0421e7dbcc8f0",
+    "seconds": 0.07795
+  },
+  "exports": {
+    "png_fhd": {
+      "size": [
+        1301,
+        1080
+      ],
+      "file_sha256": "5aca380661126267f09d7f358901fe63a75fc62b8d894ea45c1fa93047427f05",
+      "seconds": 0.1096,
+      "bytes": 35368
+    },
+    "jpg_fhd": {
+      "size": [
+        1301,
+        1080
+      ],
+      "file_sha256": "7725a3261b2d3ce5f917da5ed1ea6b337c1e743ddb64e028a365b809b615115d",
+      "seconds": 0.1077,
+      "bytes": 87021
+    },
+    "png_custom": {
+      "size": [
+        5500,
+        4567
+      ],
+      "file_sha256": "3eaf67d7ff69363700429092cc4295c124ee1dc05166342a2af45d2dbf3dca56",
+      "seconds": 0.3793,
+      "bytes": 413671
+    }
+  },
+  "restored_identical": true,
+  "source_sha256_after": "34ccb4cffee9d022ac489ab5a8a0f1e5f1eb46560d85bc66b2bbfd1bcd25eb49",
+  "source_unchanged": true
+}

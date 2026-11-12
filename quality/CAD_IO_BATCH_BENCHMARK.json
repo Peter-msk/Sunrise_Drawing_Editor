@@ -1,0 +1,13 @@
+{
+  "source_bytes": 5640000,
+  "total_records": 120000,
+  "visible_records": 96000,
+  "repeats": 5,
+  "median_memory_original_s": 0.007351,
+  "median_memory_batched_s": 0.00637,
+  "median_file_original_s": 0.014169,
+  "median_file_batched_s": 0.011455,
+  "sha256_equal": true,
+  "output_sha256": "ca7ed2dd1ae38817de592bb28b6d4358890b57141a9d84b2d2e7128540b71aae",
+  "note": "Synthetic record-copy only, not whole-file DXF render or Windows GUI"
+}

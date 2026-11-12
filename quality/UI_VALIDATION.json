@@ -1,0 +1,25 @@
+{
+  "date": "2026-11-12",
+  "source": "Sunrise_Drawing_Editor_Insert_Optimized.zip",
+  "tests_total": 124,
+  "tests_passed": 124,
+  "tests_failed": 0,
+  "runtime_environment": "Linux Python; PySide6 unavailable",
+  "windows_qt_visual_validation": "NOT RUN",
+  "windows_build_signing": "NOT RUN",
+  "changes": [
+    "toolbar command consolidation",
+    "layer name search",
+    "file/selection counters",
+    "page and zoom controls near preview",
+    "SVG action icon harmonization",
+    "long path elision",
+    "DPI-aware initial window",
+    "compact panel widths",
+    "export original resolution default preserved",
+    "disabled button states"
+  ],
+  "no_source_input_modification": true,
+  "powershell_used": false,
+  "virtual_environment_created": false
+}
