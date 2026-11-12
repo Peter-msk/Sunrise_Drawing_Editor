@@ -1,0 +1,21 @@
+{
+  "exports": {
+    "png": {
+      "size": [
+        1301,
+        1080
+      ],
+      "bytes": 35368,
+      "elapsed": 4.985
+    },
+    "jpg": {
+      "size": [
+        1301,
+        1080
+      ],
+      "bytes": 87021,
+      "elapsed": 0.099
+    }
+  },
+  "source_unchanged": true
+}

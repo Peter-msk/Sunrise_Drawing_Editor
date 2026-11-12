@@ -18,6 +18,8 @@ from ezdxf.addons.drawing.config import Configuration, BackgroundPolicy, ColorPo
 from PIL import Image
 from .tiles import save_png_tiled, save_jpg_tiled
 from .cad_spatial import CADGridIndex
+from .cad_selective import VisibleDXFSource, SelectiveDXFUnsupported
+from .cad_render_fast import FastPyMuPdfBackend
 
 
 class DrawingError(Exception):
@@ -210,6 +212,9 @@ class DrawingDocument:
             raise DrawingError(f"도면 파일을 찾지 못했습니다: {self.path}")
         self._pdf: fitz.Document | None = None
         self._cad: Any = None
+        self._cad_selective: VisibleDXFSource | None = None
+        self._cad_selective_key: tuple | None = None
+        self._cad_selective_last_stats = None
         self._states: dict[int | str, bool] = {}
         self._original: dict[int | str, bool] = {}
         self._names: dict[int | str, str] = {}
@@ -217,6 +222,11 @@ class DrawingDocument:
         self._pdf_ui_map: dict[int, int] = {}
         self._serialize_fallback = False
         self._cad_pdf_cache: OrderedDict[tuple, bytes] = OrderedDict()
+        # One decoded PDF for the active selective CAD layer state. This is
+        # owned by the worker thread and discarded on visibility changes.
+        self._cad_view_pdf: fitz.Document | None = None
+        self._cad_view_key: tuple | None = None
+        self._cad_view_pdf_bytes: int = 0
         self._cad_pdf_cache_bytes = 0
         self._cad_render_count = 0
         self._cad_base_rect: tuple[float, float] | None = None
@@ -272,6 +282,19 @@ class DrawingDocument:
         self._serialize_fallback = bool(raw and len(self._pdf_ui_map) != len(raw))
 
     def _read_cad(self):
+        # On huge ASCII DXFs the original full read may take minutes and
+        # allocate gigabytes even if nearly every source layer is OFF.
+        # Catalog the real layer table in milliseconds; defer parsing to
+        # the first preview and stage only actually selected model entities.
+        if self.kind == "dxf" and self.path.stat().st_size >= 64 * 1024 * 1024:
+            from .cad_catalog import read_ascii_dxf_layers
+            metadata = read_ascii_dxf_layers(self.path)
+            if metadata is not None:
+                self._cad_selective = VisibleDXFSource(self.path)
+                for item in metadata:
+                    self._states[item.key] = item.visible
+                    self._names[item.key] = item.name
+                return
         if self.kind == "dxf":
             self._cad = ezdxf.readfile(str(self.path))
         else:
@@ -290,6 +313,46 @@ class DrawingDocument:
             name = str(layer.dxf.name)
             self._states[name] = not (layer.is_off() or layer.is_frozen())
             self._names[name] = name
+
+    def _ensure_selective_cad(self) -> None:
+        """Load only currently visible model entities without altering source.
+
+        If the source uses an unsupported layout, retain the original reader.
+        Temporary staging uses a local scratch DXF and always deletes it.
+        """
+        if self._cad_selective is None:
+            return
+        signature = tuple(self._states.items())
+        if self._cad is not None and self._cad_selective_key == signature:
+            return
+        stage = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix='.dxf',
+                                             prefix='sunrise-cad-',
+                                             delete=False) as out:
+                stage = Path(out.name)
+            current = [name for name, enabled in self._states.items() if enabled]
+            self._cad_selective_last_stats = self._cad_selective.stage(stage, current)
+            fresh = ezdxf.readfile(str(stage))
+        except (SelectiveDXFUnsupported, ValueError, OSError) as exc:
+            # Optional acceleration must never reject a readable DXF.
+            self._cad_selective = None
+            fresh = ezdxf.readfile(str(self.path))
+        finally:
+            if stage is not None:
+                stage.unlink(missing_ok=True)
+        for layer in fresh.layers:
+            enabled = self._states.get(layer.dxf.name, False)
+            if enabled:
+                layer.on()
+                layer.thaw()
+            else:
+                layer.off()
+        self._cad = fresh
+        self._cad_selective_key = signature
+        # The selective subset is always regenerated after layer changes;
+        # preparing an OCG of the subset adds time without useful reuse.
+        self._cad_layered_attempted = True
 
     @property
     def pages(self):
@@ -354,6 +417,7 @@ class DrawingDocument:
         # earlier visibility state must never survive this transition.
         self._preview_display_list = None
         self._preview_display_key = None
+        self._preview_display_failed_key = None
         if self._pdf is not None:
             if not self._serialize_fallback:
                 for key, value in self._states.items():
@@ -367,6 +431,24 @@ class DrawingDocument:
                                     off=[key for key, yes in self._states.items() if not yes],
                                     basestate="OFF")
         else:
+            if self._cad_selective is not None:
+                self._close_cad_view()
+                # New visible layers need their original entities restored
+                # from the immutable source, not simply their flags toggled.
+                self._cad = None
+                self._cad_selective_key = None
+                self._cad_recorder = None
+                self._cad_render_box = None
+                self._cad_recording_attempted = False
+                self._cad_layered_attempted = False
+                if self._cad_layered_pdf is not None:
+                    self._cad_layered_pdf.close()
+                    self._cad_layered_pdf = None
+                self._cad_layer_ui.clear()
+                self._cad_layer_bounds.clear()
+                self._cad_spatial_index = None
+                self._cad_spatial_key = None
+                return
             for key, value in self._states.items():
                 if previous.get(key) == value:
                     continue
@@ -553,7 +635,13 @@ class DrawingDocument:
                 # No bitmap allocation is needed for the blank preview path.
                 pass
         else:
-            backend = pymupdf.PyMuPdfBackend()
+            # Repetitive INSERTs expand to many opaque LINE strokes. The
+            # fast backend emits exactly the same PDF paint commands without
+            # repeating PyMuPDF's generic Shape.finish path for every line.
+            # Only staged large DXFs take this path; unsupported strokes fall
+            # back to the stock renderer automatically.
+            backend = (FastPyMuPdfBackend() if self._cad_selective is not None
+                       else pymupdf.PyMuPdfBackend())
             configuration = Configuration(background_policy=BackgroundPolicy.OFF,
                                           color_policy=ColorPolicy.COLOR)
             Frontend(RenderContext(self._cad), backend, config=configuration).draw_layout(
@@ -562,7 +650,11 @@ class DrawingDocument:
             if geometry.has_data:
                 box = (geometry.extmin.x, geometry.extmin.y,
                        geometry.extmax.x, geometry.extmax.y)
-                pdf_bytes = backend.get_pdf_bytes(cad_layout.Page(0, 0))
+                # Reuse the EXACT bbox already obtained for page metadata.
+                # PyMuPdfBackend otherwise creates a second Player and repeats
+                # a full bounding-box walk over ~19k INSERT-expanded strokes.
+                pdf_bytes = backend.get_pdf_bytes(cad_layout.Page(0, 0),
+                                                 render_box=geometry)
                 if direct or self._cad_recorder is None:
                     with fitz.open(stream=pdf_bytes, filetype='pdf') as created:
                         rect = created[0].rect
@@ -581,6 +673,31 @@ class DrawingDocument:
                 self._cad_pdf_cache_bytes -= len(oldest)
         return pdf_bytes
 
+    def _close_cad_view(self) -> None:
+        # A PyMuPDF document and its DisplayList must never be carried across
+        # different OCG/selected-layer states. Only this worker owns them.
+        self._preview_display_list = None
+        self._preview_display_key = None
+        self._preview_display_failed_key = None
+        if self._cad_view_pdf is not None:
+            self._cad_view_pdf.close()
+            self._cad_view_pdf = None
+        self._cad_view_key = None
+        self._cad_view_pdf_bytes = 0
+
+    def _open_cad_view(self, data: bytes, key: tuple):
+        # The source DXF may be >400MiB, but the staged PDF is usually small.
+        # Keep just ONE decoded document, never a collection of large pages.
+        if len(data) > 24 * 1024 * 1024:
+            temp = fitz.open(stream=data, filetype='pdf')
+            return temp, temp.load_page(0)
+        self._close_cad_view()
+        view = fitz.open(stream=data, filetype='pdf')
+        self._cad_view_pdf = view
+        self._cad_view_key = key
+        self._cad_view_pdf_bytes = len(data)
+        return None, view.load_page(0)
+
     def _get_page_context(self):
         """Return temporary (document, page) when serialization is needed."""
         if self._pdf is not None and not self._serialize_fallback:
@@ -591,6 +708,19 @@ class DrawingDocument:
         if not any(self._states.values()):
             # Preserve the established blank-state preview sizing contract.
             return None, None
+        if self._cad_selective is not None:
+            signature = (False, tuple(self._states.items()))
+            if self._cad_view_pdf is not None and self._cad_view_key == signature:
+                return None, self._cad_view_pdf.load_page(0)
+        if self._cad_selective is not None and self._cad is None:
+            # Previously rendered layer combinations can be reused without
+            # staging or parsing even after toggling away and back.
+            signature = (False, tuple(self._states.items()))
+            saved = self._cad_pdf_cache.get(signature)
+            if saved is not None:
+                self._cad_pdf_cache.move_to_end(signature)
+                return self._open_cad_view(saved, signature)
+            self._ensure_selective_cad()
         self._build_cad_layered_pdf()
         if self._cad_layered_pdf is not None and self._cad_layered_extent_safe():
             page = self._cad_layered_pdf.load_page(0)
@@ -601,8 +731,12 @@ class DrawingDocument:
         pdf_data = self._cad_as_pdf(direct=self._cad_layered_pdf is not None)
         if pdf_data is None:
             return None, None
-        temp = fitz.open(stream=pdf_data, filetype="pdf")
-        page = temp.load_page(0)
+        if self._cad_selective is not None:
+            temp, page = self._open_cad_view(
+                pdf_data, (False, tuple(self._states.items())))
+        else:
+            temp = fitz.open(stream=pdf_data, filetype='pdf')
+            page = temp.load_page(0)
         self._cad_base_rect = (page.rect.width, page.rect.height)
         return temp, page
 
@@ -685,21 +819,42 @@ class DrawingDocument:
         if self._pdf is not None:
             if self._serialize_fallback or self.path.stat().st_size > 96 * 1024 * 1024:
                 return None
+        elif self._cad_view_pdf is not None:
+            # A large source DXF can stage a small, bounded PDF. The source
+            # filesize is not a good predictor of the active display list.
+            # Limit by *active* entities and staged PDF size instead.
+            stats = self._cad_selective_last_stats
+            if (self._cad_view_pdf_bytes > 2 * 1024 * 1024 or
+                    stats is None or stats.selected_entities > 512):
+                return None
         elif self._cad_layered_pdf is None or self.path.stat().st_size > 96 * 1024 * 1024:
             return None
-        key = (self.page_index, tuple(self._states.items()),
-               id(self._pdf) if self._pdf is not None else id(self._cad_layered_pdf))
+        owner = (self._pdf if self._pdf is not None else
+                 self._cad_view_pdf if self._cad_view_pdf is not None else self._cad_layered_pdf)
+        key = (self.page_index, tuple(self._states.items()), id(owner))
         if self._preview_display_key != key:
+            # On staged CAD, build the list only after a *second* distinct
+            # clipped preview. This avoids paying the parse cost for one-off
+            # zoom requests while enabling repeated pan/zoom acceleration.
+            self._preview_display_list = None
+            self._preview_display_key = key
+            self._preview_display_failed_key = None
+            if self._cad_view_pdf is not None:
+                return None
+        if (self._preview_display_list is None and
+                self._preview_display_failed_key != key):
             try:
                 self._preview_display_list = page.get_displaylist(annots=True)
             except (RuntimeError, ValueError, MemoryError):
-                self._preview_display_list = None
-            self._preview_display_key = key
+                self._preview_display_failed_key = key
         return self._preview_display_list
 
     def _remember_preview(self, cache_key: tuple | None, data: bytes) -> None:
         if cache_key is None or len(data) > 6_000_000:
             return
+        previous = self._preview_cache.pop(cache_key, None)
+        if previous is not None:
+            self._preview_cache_bytes -= len(previous)
         self._preview_cache[cache_key] = data
         self._preview_cache_bytes += len(data)
         while len(self._preview_cache) > 6 or self._preview_cache_bytes > 18_000_000:
@@ -848,6 +1003,9 @@ class DrawingDocument:
             if temporary is not None: temporary.unlink(missing_ok=True)
 
     def close(self):
+        self._close_cad_view()
+        self._cad_selective = None
+        self._cad_selective_key = None
         if self._pdf is not None:
             self._pdf.close()
             self._pdf = None
@@ -857,6 +1015,7 @@ class DrawingDocument:
         self._preview_geometry_cache.clear()
         self._preview_display_list = None
         self._preview_display_key = None
+        self._preview_display_failed_key = None
         self._cad_pdf_cache.clear()
         self._cad_pdf_cache_bytes = 0
         self._cad_recorder = None

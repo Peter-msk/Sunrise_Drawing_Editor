@@ -1,0 +1,36 @@
+{
+  "source_bytes": 421316933,
+  "default": {
+    "seconds": 1.7374,
+    "pixels": [
+      938,
+      700
+    ],
+    "sha256": "48a12fbcfb4e8e99c2aedb405c399a471c024ba23bb26400c51e1c4aaaf0dfbf",
+    "png_bytes": 4397,
+    "staged_bytes": 1413788,
+    "objects_pruned": true
+  },
+  "insert_layer": {
+    "seconds": 8.5927,
+    "pixels": [
+      843,
+      700
+    ],
+    "sha256": "9658d3fe016eca13e7d892e238e31fbbb5ef6f84c53a7be46e812fb10bb92b8d",
+    "png_bytes": 26957,
+    "staged_bytes": 8987348,
+    "objects_pruned": false
+  },
+  "restored": {
+    "seconds": 0.0001,
+    "pixels": [
+      938,
+      700
+    ],
+    "sha256": "48a12fbcfb4e8e99c2aedb405c399a471c024ba23bb26400c51e1c4aaaf0dfbf",
+    "png_bytes": 4397,
+    "staged_bytes": 8987348,
+    "objects_pruned": false
+  }
+}

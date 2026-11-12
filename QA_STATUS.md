@@ -98,3 +98,26 @@
 - 전후 속도 및 픽셀 비교: `quality/GITHUB_OPTIMIZATION_BENCHMARK.json`. 원본 PDF SHA-256 변경 없음.
 - 실제 Windows GUI·onefile SignTool·실물 100MB 이상 DWG/DXF는 **NOT RUN**.
 - 추가 네이티브 DLL을 도입하지 않았고 빌드 스크립트는 CMD만 유지.
+
+## 2026-11-12 사용자 실물 DXF INSERT 병목 재검증
+
+- 첨부 `3구간 최종 철탑.dxf` 실제 엔진에서 INSERT 레이어 최초 ON 8.6257초 → 3.5378초 단일 실행 관측. 초기·ON·OFF 픽셀 해시 모두 이전 코드와 일치.
+- PyMuPDF의 반복 선 PDF 콘텐츠 스트림을 기존 구현과 **바이트 단위 일치**하는 상태로 생성하는 회귀시험 추가.
+- 임시 DXF만 변경, 원본 SHA-256 동일. 신규 Windows EXE, 코드서명 실제 실행은 NOT RUN.
+- 상세 보고서: `FIELD_DXF_INSERT_OPTIMIZATION.md`.
+
+## UI/UX 재감사 및 개선 검증본 (2026-11-12)
+
+- 이전 실제 402MiB DXF 및 INSERT 최적화 기준본 위에 `drawing_editor/window.py` UI만 조정, 새로운 SVG 아이콘 14개 추가.
+- 좌측 도면 선택 현황, 가운데 레이어 검색·가시성·저장 규칙, 우측 미리보기 페이지/확대·맞춤 조작, 하단 원본 자동/지정 해상도·출력 버튼을 재배치.
+- 최소 창 970×510 논리 픽셀, 사용 가능 화면 크기에 맞춘 초기 창 크기, 좁은 창 패널 220/320 논리 픽셀.
+- 기능/빌드 112개 회귀시험 + 신규 UI 정적 계약 12개 = **124 / 124 PASS**. 전체 재실행 기록: `quality/UI_CONTRACT_TESTS.log`.
+- **Windows PySide6 실제 창/150~175% DPI, Onefile EXE/서명: NOT RUN (Linux에 Qt 미설치, 패키지 설치 불가).** 코드/아이콘/정적 계약 검사를 GUI 시각검증으로 혼동하지 않습니다.
+- GitHub main, Google Drive 원격 공식 ZIP은 본 개선 요청만으로 갱신하지 않습니다.
+
+## 심층 1·2·3차 DXF 최적화 회귀검증 — 2026-11-12
+
+- `python -m unittest discover -s tests -q`: **131/131 PASS**.
+- `quality/BASELINE_REAL_VALIDATION.json` vs `quality/OPTIMIZED_REAL_RELEASE_VALIDATION.json`: 실물 DXF 기본/INSERT/추가 폴리라인/복원/줌 RGB 픽셀 해시 모두 일치, FHD PNG/JPG·25MP 타일 PNG 결과 파일 SHA-256 일치, 원본 해시 무변경.
+- 큰 원호 레이어 PDF 콘텐츠 해시 동일, 경로 명령 출력 최적화 검증. 실제 402MB에서 Windows GUI/Onefile/서명 **NOT RUN**.
+- 성능/메모리 측정과 한계: `THREE_PASS_DEEP_VALIDATION.md`.

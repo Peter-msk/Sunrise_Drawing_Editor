@@ -1,0 +1,25 @@
+{
+  "initial_seconds": 1.9977,
+  "insert_on_seconds": 3.5909,
+  "restored_seconds": 8.3e-05,
+  "initial": {
+    "pixel_sha256": "48a12fbcfb4e8e99c2aedb405c399a471c024ba23bb26400c51e1c4aaaf0dfbf",
+    "width": 938,
+    "height": 700
+  },
+  "insert_on": {
+    "pixel_sha256": "9658d3fe016eca13e7d892e238e31fbbb5ef6f84c53a7be46e812fb10bb92b8d",
+    "width": 843,
+    "height": 700
+  },
+  "restored": {
+    "pixel_sha256": "48a12fbcfb4e8e99c2aedb405c399a471c024ba23bb26400c51e1c4aaaf0dfbf",
+    "width": 938,
+    "height": 700
+  },
+  "restored_identical": true,
+  "selected_entities": 9572,
+  "staged_bytes": 3153681,
+  "objects_pruned": true,
+  "rss_mib": 220.03
+}
