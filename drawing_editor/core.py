@@ -250,6 +250,7 @@ class DrawingDocument:
         # lists: a layer transition or page switch discards the previous list.
         self._preview_display_list: fitz.DisplayList | None = None
         self._preview_display_key: tuple | None = None
+        self._preview_display_failed_key: tuple | None = None
         self.page_index = 0
         try:
             if self.kind == "pdf":
@@ -810,8 +811,8 @@ class DrawingDocument:
         """Cache parsed PDF commands for repeated pan/zoom without stale OCGs.
 
         Only a document owned by this DrawingDocument may retain the list.
-        For memory safety cache at most ONE list, and skip very large source
-        drawings (their native command lists can require substantial RAM).
+        For memory safety cache at most ONE list. Staged CAD uses its
+        selected entity count and PDF byte size, not the original DXF size.
         The tiled export path uses a separate local list per export.
         """
         if temporary is not None or clip is None:
