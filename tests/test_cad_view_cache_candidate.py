@@ -30,6 +30,7 @@ class CADDisplayListCandidateTests(unittest.TestCase):
         self.drawing._cad_view_pdf_bytes = 128_000
         self.drawing._cad_selective_last_stats = SimpleNamespace(selected_entities=214)
         self.drawing._states = {"arc_layer": True}
+        self.drawing._cad_selective_key = tuple(self.drawing._states.items())
         self.drawing.page_index = 0
         self.drawing._preview_display_key = None
         self.drawing._preview_display_list = None
