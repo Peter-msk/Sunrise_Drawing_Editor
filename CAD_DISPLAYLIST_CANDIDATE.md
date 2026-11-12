@@ -21,3 +21,13 @@ Static source patch guards: PASS. **Python syntax/engine tests: NOT RUN** becaus
 3. Check basic preview / arc-heavy layer / INSERT ON and OFF / repeated clips.
 4. Compare RGB pixel SHA-256 and RSS peak versus unchanged ThreePass source.
 5. BUILD_ONEFILE.cmd (uses CMD only; no venv or PowerShell).
+
+## Candidate-specific commands (unexecuted here)
+
+```bat
+py -3 -m unittest discover -s tests -p "test_cad_view_cache_candidate.py" -v
+py -3 quality\\benchmark_cad_view_cache.py "D:\\Drawings\\3구간 최종 철탑.dxf" --layer G0022322 --output QA_ARC.json
+py -3 quality\\benchmark_cad_view_cache.py "D:\\Drawings\\3구간 최종 철탑.dxf" --output QA_DEFAULT.json
+```
+
+Compare the pixel SHA-256 for every repeated clip against the untouched ThreePass source using the same script. If pixels differ, memory rises excessively or repeat views are not measurably faster, reject this candidate.
