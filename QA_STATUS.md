@@ -1,0 +1,100 @@
+# Sunrise Drawing Editor — 개발·검증 기록
+
+## 구현 변경
+
+- Windows `PyInstaller --onefile --windowed` **빌드 스크립트** 및 패키징 후 `--self-test` 추가
+- Sunrise Group(주체 `CN=Sunrise Group`) 인증서 검색 → 없으면 로컬 자체서명 인증서 생성 → Authenticode SHA-256 서명 → 게시자/해시 확인
+- 실제 비공개 PFX를 제공하면 환경변수로 사용; 서명키/암호는 소스와 ZIP에 포함하지 않음
+- 공지사항·자동업데이트 기능 없음, 배포 EXE에 제품 버전 표기 없음
+- 파일 목록 빠른 등록, GUI가 전체 CAD 객체를 보존하지 않는 **메타데이터 전용 DrawingState** 신규 적용
+- 무거운 도면 메타데이터 작업은 **전용 1-worker 스레드 풀**에서 순차 처리. 완료 전 레이어 적용/추출 차단
+- CAD 레이어 조합 PDF 중간 렌더 LRU 캐시(최대 3개/96MiB, 항목당 64MiB 이하)
+- DWG: ODA가 없는 경우 별도 설치 LibreCAD의 `dwg2dxf` CLI를 선택적 사용; 파일 기반 임시 결과 생성 후 삭제
+- 기존 온맵 PDF OCG/미리보기 확대/대용량 PNG·JPG 타일/일괄 레이어 규칙·선택 추출 유지
+
+## 확인된 항목
+
+| 구분 | 상태 | 증거 |
+|---|---|---|
+| Python 문법/compileall | PASS | 모든 소스 import-independent compile |
+| 전체 엔진 회귀 테스트 | **51/51 PASS** | `python -m unittest discover -s tests -q` |
+| 대용량 6438×9308 px 타일 출력 | PASS | 기존 회귀시험 유지 |
+| CAD 레이어 조합 캐시 재사용 | PASS | 동일 조합 복귀 시 PDF backend 재실행 횟수 유지 |
+| GUI 경량 메타데이터 상태모델 | PASS | 40개 경로 등록·규칙 적용·잠금 상태 단위시험 |
+| LibreCAD CLI 결합·원본 비파괴 | PASS | 합성 외부 실행파일로 DXF 변환 계약 확인 |
+| ZIP 구조·CRC·SHA | PASS | 완료 후 별도 해시 매니페스트 생성 |
+
+## 미실행 항목 — 절대 PASS로 승격하지 않음
+
+| 구분 | 상태 | 이유 |
+|---|---|---|
+| Windows 네이티브 onefile EXE | NOT RUN | 작성 환경 Linux, PyInstaller는 Windows EXE 교차빌드 불가 |
+| PySide6 실제 GUI / 테마 / 확대 | NOT RUN | GUI 런타임 미설치 |
+| Windows `BUILD_ONEFILE.cmd`의 SignTool 서명 및 검증 | NOT RUN | Windows 인증서 저장소/SignTool 코드서명 미실행 |
+| 100/300/500MB 실물 DWG·DXF | NOT RUN | 실물 대용량 도면 미제공 |
+| LibreCAD DWGSUPPORT 실제 Windows 빌드 | NOT RUN | Windows LibreCAD 외부 실행파일 미제공 |
+| 공식 재배포 라이선스 검토 | PENDING | PyMuPDF AGPL/상용, PySide6 LGPL/상용 규정 확인 필요 |
+
+## Windows 배포 전 확인
+
+1. Windows에서 `BUILD_ONEFILE.cmd` 실행하여 **onefile EXE 생성·기동 성공** 확인.
+2. CMD의 `signtool verify /pa /v "dist\Sunrise Drawing Editor.exe"`로 확인하는 서명 주체 `CN=Sunrise Group` 확인. 자체서명인 경우 신뢰된 공인 게시자 서명으로 표시하지 말 것.
+3. `dist\SHA256.txt`와 배포 EXE 해시 대조.
+4. 실제 100/300/500MB DXF/DWG에서 열기 시간·렌더링 FPS·최대 메모리·취소 및 특수객체 누락 검증.
+5. 외부 배포 전 AGPL/상용 라이선스·LGPL 의무 충족.
+
+## 추가 CAD 렌더링 재사용 검증
+
+- 기존 41개 + 신규 5개 자동시험 = **46/46 PASS**
+- `ezdxf` 디스플레이 명령을 한 번 기록한 뒤 레이어 필터로 재생. 레이어 교체 후 전체 CAD 파싱 재수행 억제
+- 초기 숨김 레이어, INSERT 포함 도면, 캐시 초과 폴백, 확대 클립, 원본 파일 해시 보존 시험 PASS
+- 합성 5,000/20,000 객체 전후 중앙값은 `CAD_RENDER_OPTIMIZATION.md` 참조
+- 실제 Windows GUI 및 실물 100~500MB DXF/DWG는 여전히 NOT RUN
+
+## CAD 내부 PDF OCG 재사용 최적화 — 신규 검증
+
+- 기존 46개 + 신규 5개 = **51/51 PASS**.
+- PDF OCG 레이어 재사용 및 레이어별 바운딩 범위 판정. 바운딩 변화 시 이전 정확 경로로 자동 복귀.
+- 5,000개/20,000개 합성 CAD: 실제 Layer_0 OFF 변환 시간 전후 측정. 기존과 개선 후의 렌더링 출력 8/8 픽셀 해시 일치.
+- 측정·회귀 검증 기록은 `CAD_NATIVE_LAYER_OPTIMIZATION.md` 및 `quality/CAD_OCG_*` 참조.
+- 실제 100/300/500MB DWG·DXF 및 Windows EXE·GUI·서명은 여전히 **NOT RUN**.
+
+## 최신 추가 검증 — ASCII DXF 경량 카탈로그·대용량 가시영역 렌더
+
+- 기존 51개 회귀시험 + 신규 7개 = **58/58 PASS** (`quality/CAD_LARGE_OPT_TESTS.log`).
+- ASCII DXF LAYER 테이블 단독 메타데이터 추출 4개 시험: 기존 full parser와 레이어명/표시상태 동일, 한글 레이어명, 잘못된 원본 폴백, 제한 구간 파싱 PASS.
+- 대용량 CAD 가시영역 렌더링 3개 시험: 8,800개 이상의 단순 도형 인덱스, 복합 객체(INSERT/TEXT) 유지, 원본 SHA256 불변 및 확대 클립 픽셀 비교, 인덱스 실패 시 전체 렌더 폴백 PASS.
+- 부하 시험 8,000·24,000 객체, 두 클립 영역 모두 원래 전체 렌더와 픽셀 동일: `quality/LARGE_CAD_BENCHMARK.json`.
+- 경계 렌더 캐시가 존재할 때 공간 필터링을 건너뛰고 더 빠른 기존 MuPDF 클립을 사용하도록 가드 추가.
+- 대용량 출력 타일 PNG/JPG, 41개 기존 시험, 51개 중간 시험의 정상 경로 유지.
+- Windows GUI/EXE/서명 및 라이브러리 실물 100~500MB DXF/DWG는 **NOT RUN**.
+
+## CMD 전용 Onefile 빌드 재감사
+
+- `BUILD_ONEFILE.cmd` 외 PowerShell `.ps1` 파일 제거. Python 3.11 고정과 가상환경 요구 제거.
+- `INSTALL_AND_RUN.cmd`, `RUN.cmd`, `RUN_TESTS.cmd`로 실행 도구를 통일.
+- `PySide6-Essentials` 도입, 미사용 WebEngine/Pdf 배포 제외.
+- SignTool/CertUtil 기반 Sunrise Group 서명 및 실패 차단 추가.
+- 상세 근거는 `BUILD_AUDIT.md` / `build/WINDOWS_BUILD_CHECKLIST.md`.
+- **Windows 실제 exe/서명: NOT RUN. Linux에서 진행한 스크립트·엔진 단위시험을 Windows 실제 실행 PASS로 표시하지 않음.**
+
+
+## Current renderer and export-resolution upgrade (2026-11-12)
+
+- Base archive: `Sunrise_Drawing_Editor_QtFix.zip`. Existing CMD-only onefile, PySide6-only packaging, and Sunrise Group SignTool workflow preserved.
+- Default output remains original-auto; selectable HD/FHD/QHD/4K upper bounds, custom maximum W/H, and manually specified DPI were added.
+- Repeat preview caching now reuses the same image **and** page dimensions, without regenerating intermediate CAD/PDF page context for identical inputs.
+- For >12MP export, full-width clipped stripes are used whenever they fit the RGB render-memory budget; extremely wide outputs use the existing multi-column fallback.
+- Source compileall: PASS.
+- Unit tests: **86/86 PASS** (77 prior + 9 new). Test log `quality/RENDER_EXPORT_UNITTESTS.log`.
+- Synthetic page benchmark: `quality/EXPORT_STRIPE_BENCHMARK.json`. Median 0.28223 sec old vs 0.19766 sec new, 35 vs 7 get_pixmap() calls. Differences compared against reference full page captured in benchmark.
+- Windows Onefile generation / signed EXE / actual PySide6 GUI / 100MB+ real DXF or DWG: **NOT RUN** in this Linux runtime. A GUI dependency installation was attempted but unavailable. This is not a Windows release PASS.
+
+
+## GitHub 공개소스 기반 스트리밍 출력 최적화 (2026-11-12)
+
+- PyMuPDF DisplayList 재사용, PNG 일괄 zlib 압축, RGB 연속 메모리 복사, JPG scratch mmap flush 생략.
+- 전체 자동시험: **92/92 PASS** (기존 86+신규 6).
+- 전후 속도 및 픽셀 비교: `quality/GITHUB_OPTIMIZATION_BENCHMARK.json`. 원본 PDF SHA-256 변경 없음.
+- 실제 Windows GUI·onefile SignTool·실물 100MB 이상 DWG/DXF는 **NOT RUN**.
+- 추가 네이티브 DLL을 도입하지 않았고 빌드 스크립트는 CMD만 유지.

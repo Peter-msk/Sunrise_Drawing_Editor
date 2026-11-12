@@ -1,0 +1,5 @@
+# Only QtCore / QtGui / QtWidgets / QtSvg are used. Avoid Qt WebEngine and PDF wheels.
+PySide6-Essentials>=6.6,<7
+PyMuPDF>=1.24,<2
+ezdxf>=1.3,<2
+Pillow>=10,<13
