@@ -25,6 +25,19 @@
 - PyInstaller Onefile child uses `sys.executable --cad-worker`; unfrozen Python uses `-m drawing_editor.cad_worker`.
 - These are intended contracts; **runtime behavior is not yet verified**.
 
+## Stage 3 changes and test sequence
+- File selection now calls `shutdown_all_workers(background=True)` so Qt does not synchronously wait for the native DXF subprocess to finish.
+- A non-daemon reaper performs bounded wait/kill and temporary-file cleanup.
+- `tests/test_cad_worker_process.py` now has 8 tests, including async-reaper cleanup contract.
+- Integrated catalog/batch-gate tests: `tests/test_p0_catalog_batch_gate.py` (7 tests).
+- Independent HiDPI/theme tests: `tests/test_hidpi_theme_icons_regression.py` (7 tests).
+- Run `RUN_P0_QA.cmd` (no arguments = targeted tests only), or:
+  `RUN_P0_QA.cmd "D:\\Drawings\\3구간 최종 철탑.dxf" "D:\\Drawings\\온맵원본.pdf"`
+  to include the 10-cycle engine-only real-DXF→OnMap check.
+- `RUN_ALL_TESTS=1` enables the legacy full suite deliberately, never automatically.
+- All 22 new tests are **WRITTEN / NOT RUN** in this environment. The Windows GUI still needs manual DPIs and close/cancel action testing.
+- The QA tool reports parent RSS only, and persists FAIL JSON on exceptions.
+
 ## Windows CMD QA steps
 1. In an isolated work copy at the candidate branch, ensure runtime deps are installed and `RUN.cmd` launches.
 2. `python -m unittest tests.test_cad_worker_process -v`
