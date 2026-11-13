@@ -90,7 +90,7 @@ def run(dxf_path: Path, pdf_path: Path, repeats: int) -> dict:
                 "onmap_preview_seconds": round(pdf_seconds, 4),
                 "onmap_png_sha256": pdf_hash,
                 "onmap_geometry": list(pdf_geometry),
-                "rss_bytes_optional_psutil": process_rss_bytes(),
+                "parent_rss_bytes_optional_psutil": process_rss_bytes(),
             })
     finally:
         shutdown_all_workers()
@@ -110,7 +110,7 @@ def run(dxf_path: Path, pdf_path: Path, repeats: int) -> dict:
         "input_files_unchanged": latest == originals,
         "gui_qa": "NOT RUN",
         "windows_onefile_signing": "NOT RUN",
-        "notes": "GUI click/drag and forced native cancellation require separate Windows manual QA",
+        "notes": "RSS measures only the parent process; child peak RSS, GUI clicks, drag and forced native cancellation require separate Windows QA",
     }
 
 
@@ -131,6 +131,23 @@ def main(argv=None) -> int:
         print("QA", result["status_engine_only"], "report:", args.report)
         return 0 if result["status_engine_only"] == "PASS" else 1
     except Exception as exc:
+        # A failing real-DXF run must still leave machine-readable evidence.
+        # Never claim PASS merely because the report could not be generated.
+        failure = {
+            "date_utc": datetime.now(timezone.utc).isoformat(),
+            "status_engine_only": "FAIL",
+            "error_type": type(exc).__name__,
+            "error": str(exc)[:700],
+            "gui_qa": "NOT RUN",
+            "windows_onefile_signing": "NOT RUN",
+        }
+        try:
+            args.report.parent.mkdir(parents=True, exist_ok=True)
+            args.report.write_text(
+                json.dumps(failure, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8")
+        except OSError as report_error:
+            print("QA REPORT WRITE FAILED:", report_error, file=sys.stderr)
         print("QA FAILED:", type(exc).__name__, str(exc), file=sys.stderr)
         return 1
 
