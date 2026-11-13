@@ -198,9 +198,12 @@ def render_isolated(mode: str, source: str, states: dict, page_index: int,
         _THREAD.session = session
     try:
         return session.render(mode, source, states, page_index, preview_size, clip, cancelled)
-    except BaseException:
-        if session.closed:
-            _THREAD.session = None
+    except Exception:
+        # A child error can leave its thread-local DrawingDocument or IPC
+        # transaction in an unknown state. Never reuse that worker on retry.
+        # This also makes a failed file switch recover without restarting Qt.
+        session.close()
+        _THREAD.session = None
         raise
 
 
