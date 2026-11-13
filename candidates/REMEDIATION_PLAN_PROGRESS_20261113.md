@@ -12,12 +12,12 @@
 | 단계 | 배점 | 현재 인정 점수 | 완료 근거 / 미완료 |
 |---|---:|---:|---|
 | 1. 소스 이력·결함 경계 확정 | 10 | 10 | 누적 패치 문맥 및 호출 경로 정적 감사 |
-| 2. P0 렌더 프로세스 격리·취소·종료 | 35 | 22 | 비차단 종료 유지, 실패한 자식 워커 폐기·다음 요청 새 프로세스 복구 코드/시험 작성; 해당 워커 실행 NOT RUN |
-| 3. 카탈로그·파일/레이어 생명주기 | 20 | 6 | 제거·재추가 세대 검사 및 PDF 카탈로그 취소, 일괄 export gate 코드 반영 |
+| 2. P0 렌더 프로세스 격리·취소·종료 | 35 | 24 | 실제 421MiB DXF의 로컬 워커 동작 검증, INSERT 테스트 API 수정; 최신 GitHub 전체 실행 미완료 |
+| 3. 카탈로그·파일/레이어 생명주기 | 20 | 9 | 성공·오류 콜백에 공통 등록세대 소유권 검사, 6개 순수 실행시험 PASS, 정적 계약 1개 추가 |
 | 4. 라이트·다크 테마·아이콘 | 15 | 4 | SVG 40개 존재 및 토큰 대비 정적 점검, 새 7개 시험 작성; Windows 시각 QA NOT RUN |
-| 5. 실물 기능/성능/출력 회귀 | 10 | 2 | 실물 421MiB DXF + 합성 온맵 PDF 순차 엔진 3회 / 기존 217개 시험 PASS; 최신 워커·GUI NOT RUN |
+| 5. 실물 기능/성능/출력 회귀 | 10 | 3 | 로컬 변경 경계 228/228 PASS, 실물 DXF 하위프로세스 취소·정리 PASS(로컬 재현), Windows NOT RUN |
 | 6. Windows Onefile/서명/배포 판정 | 10 | 0 | NOT RUN |
-| **총계** | **100** | **44** | **구현·정적 검토 진행률, 릴리즈 검증 완료율 아님** |
+| **총계** | **100** | **50** | **구현·정적 검토 진행률, 릴리즈 검증 완료율 아님** |
 
 ## 패치 1: catalog generation + batch MuPDF gate
 - candidates/P0_CATALOG_LIFECYCLE_BATCH_GATE_20261113.patch
@@ -86,3 +86,16 @@
 - Work-branch P0 change: failed isolated subprocess now always closes and clears its thread-local CAD session. Recovery regression added: missing DXF failure -> valid DXF preview, worker tests now **9 written, NOT RUN**. Total new targeted tests **23 written**, not runtime verified.
 - Field evidence: `candidates/FIELD_DXF_SEQUENTIAL_ENGINE_QA_20261113.md`, local detailed JSON file available separately. Current work branch itself not available as a local runnable ZIP; do not equate the sequential baseline pass with child-process or Windows GUI pass.
 - Windows PySide6 GUI / actual OnMap original PDF / child-process run / Onefile signed build: **NOT RUN**.
+
+
+## Stage 5 checkpoint — 2026-11-13; progress 50%
+
+- Local HiDPI baseline + same pure generation fence + behavior-equivalent isolated CAD worker: 228/228 PASS (217 baseline + 6 catalog tests + 5 subprocess tests). Not byte-identical to the exact GitHub branch; Windows GUI NOT RUN.
+- Real 421,316,933-byte user DXF, 290 layers, 2 ON: initial isolated preview 2.0456s, child RSS 189.2MiB post render. After closing worker, synthetic OnMap PDF preview 0.0083s.
+- Active worker cancellation: cancel signal return 0.0002s, worker thread raised RenderCancelled, child terminated, tracked live sessions zero, source SHA-256 unchanged.
+- Synthetic OnMap PDF 120 OCG visibility changes, restored PNG hash 30/30 cycles.
+- Fixed ezdxf 1.4.4 regression fixture from missing add_insert method to supported add_blockref method.
+- Integrated catalog_result_is_current into drawing_editor/ui_interaction.py and window.py success/error paths; added tests/test_catalog_generation_semantics.py (7 tests: 6 pure, 1 static GUI contract).
+- Repaired stale text assertions in tests/test_p0_catalog_batch_gate.py; RUN_P0_QA.cmd includes four targeted test groups and optional real DXF/PDF step.
+- Current branch: 30 targeted tests WRITTEN, NOT RUN as the exact integrated GitHub source. Local 228 PASS is not branch-wide PASS.
+- Official main, Drive, signed EXE unchanged. RELEASE HOLD.
