@@ -79,3 +79,16 @@ def detail_tile_covers(visible: tuple[float, float, float, float] | None,
     return (a0 <= x0 + epsilon and b0 <= y0 + epsilon and
             a1 + epsilon >= x1 and b1 + epsilon >= y1 and
             tile_density * 1.01 >= requested_density)
+
+
+def catalog_result_is_current(seq: int, actual_path: str | None,
+                              expected_path: str | None,
+                              latest: dict[str, int],
+                              documents: dict) -> bool:
+    """Reject late responses for removed/replaced file registrations.
+
+    A pathname alone cannot identify a registration: the user can remove a file
+    and add the same path while an earlier catalog job remains in flight.
+    """
+    return (bool(actual_path) and actual_path == expected_path
+            and latest.get(actual_path) == seq and actual_path in documents)
