@@ -22,23 +22,27 @@ if not defined PY_RUN (
 %PY_RUN% "build\preflight.py" runtime
 if errorlevel 1 goto :failed
 
-echo [1/5] Isolated CAD worker: PNG parity, cancel, reuse, close
+echo [1/6] Isolated CAD worker: PNG parity, cancel, reuse, close
 %PY_RUN% -m unittest discover -s tests -p "test_cad_worker_process.py" -v
 if errorlevel 1 goto :failed
 
-echo [2/5] Catalog registration and batch MuPDF gate
+echo [2/6] Catalog registration and batch MuPDF gate
 %PY_RUN% -m unittest discover -s tests -p "test_p0_catalog_batch_gate.py" -v
 if errorlevel 1 goto :failed
 
-echo [3/5] Catalog registration ownership and remove/re-add race
+echo [3/6] Catalog registration ownership and remove/re-add race
 %PY_RUN% -m unittest discover -s tests -p "test_catalog_generation_semantics.py" -v
 if errorlevel 1 goto :failed
 
-echo [4/5] HiDPI and light-dark theme asset contracts
+echo [4/6] DXF worker source revision and crash recovery
+%PY_RUN% -m unittest discover -s tests -p "test_worker_source_identity.py" -v
+if errorlevel 1 goto :failed
+
+echo [5/6] HiDPI and light-dark theme asset contracts
 %PY_RUN% -m unittest discover -s tests -p "test_hidpi_theme_icons_regression.py" -v
 if errorlevel 1 goto :failed
 
-echo [5/5] Real DXF / OnMap QA, only when both input paths are given
+echo [6/6] Real DXF / OnMap QA, only when both input paths are given
 if "%~1"=="" (
     echo [NOT RUN] No real DXF/PDF paths were supplied.
     goto :optional_full
