@@ -16,7 +16,7 @@ import ezdxf
 from drawing_editor.cad_worker import (
     render_isolated, should_isolate_cad, shutdown_all_workers, _THREAD,
 )
-from drawing_editor.core import RenderCancelled
+from drawing_editor.core import DrawingError, RenderCancelled
 
 
 class IsolatedCADPreviewTest(unittest.TestCase):
@@ -76,6 +76,17 @@ class IsolatedCADPreviewTest(unittest.TestCase):
             "preview", str(self.path), states, 0, (500, 400))
         self.assertTrue(result.startswith(b"\x89PNG\r\n\x1a\n"))
         self.assertIsNot(session, _THREAD.session)
+
+    def test_bad_dxf_worker_is_recreated_on_next_preview(self):
+        states = {"0": True}
+        missing = str(Path(self.scratch.name) / "missing.dxf")
+        with self.assertRaises(DrawingError):
+            render_isolated("preview", missing, states, 0, (500, 400))
+        self.assertIsNone(getattr(_THREAD, "session", None))
+        image, geometry = render_isolated(
+            "preview", str(self.path), states, 0, (500, 400))
+        self.assertTrue(image.startswith(b"\\x89PNG\\r\\n\\x1a\\n"))
+        self.assertEqual(len(geometry), 2)
 
     def test_close_reclaims_worker_session(self):
         states = {"0": True}
