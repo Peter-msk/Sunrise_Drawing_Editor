@@ -95,6 +95,15 @@ class EntrypointContractTest(unittest.TestCase):
         self.assertIn("render_isolated('detail'", window)
         self.assertIn("shutdown_all_workers()", window)
 
+    def test_onmap_switch_releases_idle_dxf_worker(self):
+        window = (Path(__file__).resolve().parents[1] /
+                  "drawing_editor" / "window.py").read_text(encoding="utf-8")
+        head = window.index("    def _selection_changed(self,current,previous):")
+        tail = window.index("    def _layer_changed(", head)
+        switch = window[head:tail]
+        self.assertIn("if doc is None or not should_isolate_cad(str(doc.path)):", switch)
+        self.assertIn("shutdown_all_workers()", switch)
+
     def test_frozen_worker_bypasses_qt(self):
         main = (Path(__file__).resolve().parents[1] /
                 "main.py").read_text(encoding="utf-8")
