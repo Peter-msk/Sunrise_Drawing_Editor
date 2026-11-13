@@ -88,7 +88,7 @@ def _needs_objects(source: mmap.mmap, start: int, end: int) -> bool:
 _ENTITY_WRITE_CHUNK = 4 * 1024 * 1024
 
 
-def _write_selected_entities(destination, source: mmap.mmap, records) -> None:
+def _write_selected_entities(destination, source: mmap.mmap, records, *, cancelled=None) -> None:
     """Write byte-exact selected spans in CAD order, merging adjacent spans.
 
     ``records`` is already sorted by source offset. The caller retains the
@@ -96,7 +96,9 @@ def _write_selected_entities(destination, source: mmap.mmap, records) -> None:
     not geometry or DXF simplification.
     """
     begin = end = None
-    for start, stop, _, _ in records:
+    for index, (start, stop, _, _) in enumerate(records):
+        if index % 256 == 0 and cancelled and cancelled():
+            raise SelectiveDXFCancelled()
         if begin is not None and start == end and stop - begin <= _ENTITY_WRITE_CHUNK:
             end = stop
             continue
@@ -109,6 +111,10 @@ def _write_selected_entities(destination, source: mmap.mmap, records) -> None:
 
 class SelectiveDXFUnsupported(ValueError):
     """Nonstandard source; caller must fall back to original DXF reader."""
+
+
+class SelectiveDXFCancelled(Exception):
+    """User cancelled staging; MUST NOT fall back to a full 400MiB parser."""
 
 
 @dataclass(frozen=True)
@@ -157,7 +163,7 @@ class VisibleDXFSource:
         stat = self.path.stat()
         return stat.st_size, stat.st_mtime_ns
 
-    def _scan(self, source: mmap.mmap) -> None:
+    def _scan(self, source: mmap.mmap, cancelled=None) -> None:
         # ASCII DXF produced by AutoCAD uses CRLF and fixed-width, three-char
         # group codes. The C-level mmap.find() path avoids scanning 400MB
         # several times with large regular expressions. Different formatting
@@ -200,6 +206,8 @@ class VisibleDXFSource:
         # All record boundaries are exact group-0 lines. An entity is not
         # decoded or allocated here; only its byte range and layer are stored.
         while start < self._entity_end:
+            if len(entities) % 2048 == 0 and cancelled and cancelled():
+                raise SelectiveDXFCancelled()
             if source[start:start + 5] != b'  0\r\n':
                 raise SelectiveDXFUnsupported('Nonstandard DXF entity boundary')
             # On the canonical CRLF path, a group-0 type token is short.
@@ -415,8 +423,11 @@ class VisibleDXFSource:
                 cursor = end
         return True
 
-    def stage(self, destination: str | Path, visible_layers: Iterable[str]) -> SelectedDXFStats:
+    def stage(self, destination: str | Path, visible_layers: Iterable[str],
+              *, cancelled=None) -> SelectedDXFStats:
         started = time.perf_counter()
+        if cancelled and cancelled():
+            raise SelectiveDXFCancelled()
         if self._stat_signature() != self._signature:
             raise SelectiveDXFUnsupported('Source DXF changed after indexing')
         visible = {name.casefold() for name in visible_layers}
@@ -427,7 +438,7 @@ class VisibleDXFSource:
             original.seek(0)
             with mmap.mmap(original.fileno(), 0, access=mmap.ACCESS_READ) as contents:
                 if self._index is None:
-                    self._scan(contents)
+                    self._scan(contents, cancelled=cancelled)
                 assert self._index is not None
                 if self._by_layer is not None:
                     candidates = [entry for layer in visible
@@ -438,6 +449,8 @@ class VisibleDXFSource:
                         selected = [e for e in self._index if e[3] in visible]
                 else:
                     selected = [e for e in self._index if e[3] in visible]
+                if cancelled and cancelled():
+                    raise SelectiveDXFCancelled()
                 # If every selected entity is a simple self-contained primitive,
                 # no instance can reference a block definition. Keeping the
                 # BLOCK_RECORD/LAYER tables retains styles and entity attributes.
@@ -456,6 +469,8 @@ class VisibleDXFSource:
                          or self._simple_local_blocks(contents, block_selection))
                 )
                 with Path(destination).open('wb') as out:
+                    if cancelled and cancelled():
+                        raise SelectiveDXFCancelled()
                     if strip_blocks:
                         block_start, block_end = self._block_range
                         if not 0 < block_start < block_end < self._entity_start:
@@ -472,7 +487,10 @@ class VisibleDXFSource:
                         out.write(contents[:self._entity_start])
                     # Copy every original byte of every selected entity: no
                     # coordinate rounding, path simplifying or point omission.
-                    _write_selected_entities(out, contents, selected)
+                    if cancelled is None:
+                        _write_selected_entities(out, contents, selected)
+                    else:
+                        _write_selected_entities(out, contents, selected, cancelled=cancelled)
                     if strip_objects:
                         obj_start, obj_end = self._objects_section
                         if obj_start < self._entity_end or obj_end > len(contents):

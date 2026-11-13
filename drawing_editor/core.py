@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from collections import OrderedDict
+from collections import Counter
 from io import BytesIO
 from pathlib import Path
 import os
@@ -19,12 +20,53 @@ from PIL import Image
 from .tiles import save_png_tiled, save_jpg_tiled
 from .trim import find_content_crop, image_ink_bbox
 from .cad_spatial import CADGridIndex
-from .cad_selective import VisibleDXFSource, SelectiveDXFUnsupported
+from .cad_selective import VisibleDXFSource, SelectiveDXFUnsupported, SelectiveDXFCancelled
 from .cad_render_fast import FastPyMuPdfBackend
 
 
 class DrawingError(Exception):
     """User-visible document, render or save error."""
+
+
+class RenderCancelled(DrawingError):
+    """Preview was superseded or stopped; do not report as a render failure."""
+
+
+class _CancelableFastCADBackend(FastPyMuPdfBackend):
+    """Cancellation checkpoint during expanded INSERT / CIRCLE / ARC commands.
+
+    The existing ThreePass paint backend still serializes the exact same PDF
+    operations. We only check the request's Event every 128 drawing primitives.
+    This backend is used for interactive previews, never for export.
+    """
+
+    def __init__(self, cancelled):
+        super().__init__()
+        self._cancelled_callback = cancelled
+        self._cancel_count = 0
+
+    def _checkpoint(self):
+        self._cancel_count += 1
+        if (self._cancel_count % 128 == 0
+                and self._cancelled_callback is not None
+                and self._cancelled_callback()):
+            raise RenderCancelled('미리보기 중단됨')
+
+    def draw_line(self, *args, **kwargs):
+        self._checkpoint()
+        return super().draw_line(*args, **kwargs)
+
+    def draw_path(self, *args, **kwargs):
+        self._checkpoint()
+        return super().draw_path(*args, **kwargs)
+
+    def draw_filled_polygon(self, *args, **kwargs):
+        self._checkpoint()
+        return super().draw_filled_polygon(*args, **kwargs)
+
+    def draw_image(self, *args, **kwargs):
+        self._checkpoint()
+        return super().draw_image(*args, **kwargs)
 
 
 # Large images use disk-backed tiles rather than a fixed megapixel cap.
@@ -223,6 +265,11 @@ class DrawingDocument:
         if not self.path.is_file():
             raise DrawingError(f"도면 파일을 찾지 못했습니다: {self.path}")
         self._pdf: fitz.Document | None = None
+        # Ambiguous OCG names require an isolated serialized PDF after a
+        # visibility change. Do not serialize the original on first preview;
+        # reuse at most ONE bounded copy until the layer state changes again.
+        self._pdf_fallback_view: fitz.Document | None = None
+        self._pdf_fallback_requires_copy = False
         self._cad: Any = None
         self._cad_selective: VisibleDXFSource | None = None
         self._cad_selective_key: tuple | None = None
@@ -263,7 +310,12 @@ class DrawingDocument:
         self._preview_display_list: fitz.DisplayList | None = None
         self._preview_display_key: tuple | None = None
         self._preview_display_failed_key: tuple | None = None
+        # Audit-only opt-in for the unapproved >96MiB CAD DisplayList candidate.
+        # Production remains on the field-validated ThreePass page renderer.
+        # The comparison CLI enables this only for isolated benchmarking.
+        self._experimental_large_cad_displaylist = False
         self.page_index = 0
+        self._preview_cancelled = None
         try:
             if self.kind == "pdf":
                 self._read_pdf()
@@ -288,10 +340,22 @@ class DrawingDocument:
         # The live UI OCG switches invalidate the rendering display list without
         # serializing/reopening the source PDF. Use this path only when unambiguous.
         configs = self._pdf.layer_ui_configs() if raw else []
+        # Linear lookup, not O(layers * controls + layers**2). Large OnMap
+        # documents can have hundreds of OCGs and must open promptly.
+        counts = Counter(self._names.values())
+        controls = {}
+        duplicates = set()
+        for item in configs:
+            if item.get('type') != 'checkbox':
+                continue
+            name = item.get('text')
+            if name in controls:
+                duplicates.add(name)
+            else:
+                controls[name] = item['number']
         for key, name in self._names.items():
-            matches = [x for x in configs if x["text"] == name and x["type"] == "checkbox"]
-            if len(matches) == 1 and sum(v == name for v in self._names.values()) == 1:
-                self._pdf_ui_map[key] = matches[0]["number"]
+            if counts[name] == 1 and name in controls and name not in duplicates:
+                self._pdf_ui_map[key] = controls[name]
         self._serialize_fallback = bool(raw and len(self._pdf_ui_map) != len(raw))
 
     def _read_cad(self):
@@ -345,8 +409,14 @@ class DrawingDocument:
                                              delete=False) as out:
                 stage = Path(out.name)
             current = [name for name, enabled in self._states.items() if enabled]
-            self._cad_selective_last_stats = self._cad_selective.stage(stage, current)
+            self._check_preview_cancel()
+            self._cad_selective_last_stats = self._cad_selective.stage(
+                stage, current, cancelled=self._preview_cancelled)
+            self._check_preview_cancel()
             fresh = ezdxf.readfile(str(stage))
+            self._check_preview_cancel()
+        except SelectiveDXFCancelled as exc:
+            raise RenderCancelled('미리보기 중단됨') from exc
         except (SelectiveDXFUnsupported, ValueError, OSError) as exc:
             # Optional acceleration must never reject a readable DXF.
             self._cad_selective = None
@@ -438,11 +508,13 @@ class DrawingDocument:
                         self._pdf.set_layer_ui_config(
                             self._pdf_ui_map[key], action=0 if value else 2)
             else:
+                self._close_pdf_fallback_view()
                 # Fallback only for OCGs missing from /Order or ambiguous names.
                 self._pdf.set_layer(-1,
                                     on=[key for key, yes in self._states.items() if yes],
                                     off=[key for key, yes in self._states.items() if not yes],
                                     basestate="OFF")
+                self._pdf_fallback_requires_copy = True
         else:
             if self._cad_selective is not None:
                 self._close_cad_view()
@@ -640,6 +712,7 @@ class DrawingDocument:
                                      render_box=self._cad_render_box)
 
     def _cad_as_pdf(self, *, direct: bool = False) -> bytes | None:
+        self._check_preview_cancel()
         signature = (direct, tuple(self._states.items()))
         if signature in self._cad_pdf_cache:
             self._cad_pdf_cache.move_to_end(signature)
@@ -658,13 +731,20 @@ class DrawingDocument:
             # repeating PyMuPDF's generic Shape.finish path for every line.
             # Only staged large DXFs take this path; unsupported strokes fall
             # back to the stock renderer automatically.
-            backend = (FastPyMuPdfBackend() if self._cad_selective is not None
-                       else pymupdf.PyMuPdfBackend())
+            if self._cad_selective is not None:
+                backend = (_CancelableFastCADBackend(self._preview_cancelled)
+                           if self._preview_cancelled is not None
+                           else FastPyMuPdfBackend())
+            else:
+                backend = pymupdf.PyMuPdfBackend()
             configuration = Configuration(background_policy=BackgroundPolicy.OFF,
                                           color_policy=ColorPolicy.COLOR)
+            self._check_preview_cancel()
             Frontend(RenderContext(self._cad), backend, config=configuration).draw_layout(
                 self._cad.modelspace())
+            self._check_preview_cancel()
             geometry = backend.player().bbox()
+            self._check_preview_cancel()
             if geometry.has_data:
                 box = (geometry.extmin.x, geometry.extmin.y,
                        geometry.extmax.x, geometry.extmax.y)
@@ -689,7 +769,13 @@ class DrawingDocument:
             while len(self._cad_pdf_cache) > 3 or self._cad_pdf_cache_bytes > 96 * 1024 * 1024:
                 _, oldest = self._cad_pdf_cache.popitem(last=False)
                 self._cad_pdf_cache_bytes -= len(oldest)
+        self._check_preview_cancel()
         return pdf_bytes
+
+    def _check_preview_cancel(self):
+        cancelled = getattr(self, '_preview_cancelled', None)
+        if cancelled is not None and cancelled():
+            raise RenderCancelled('미리보기 중단됨')
 
     def _close_cad_view(self) -> None:
         # A PyMuPDF document and its DisplayList must never be carried across
@@ -702,6 +788,11 @@ class DrawingDocument:
             self._cad_view_pdf = None
         self._cad_view_key = None
         self._cad_view_pdf_bytes = 0
+
+    def _close_pdf_fallback_view(self):
+        if self._pdf_fallback_view is not None:
+            self._pdf_fallback_view.close()
+            self._pdf_fallback_view = None
 
     def _open_cad_view(self, data: bytes, key: tuple):
         # The source DXF may be >400MiB, but the staged PDF is usually small.
@@ -718,10 +809,20 @@ class DrawingDocument:
 
     def _get_page_context(self):
         """Return temporary (document, page) when serialization is needed."""
-        if self._pdf is not None and not self._serialize_fallback:
-            return None, self._pdf.load_page(self.page_index)
+        self._check_preview_cancel()
         if self._pdf is not None:
-            temp = fitz.open(stream=self._pdf.tobytes(), filetype="pdf")
+            if not self._serialize_fallback or not self._pdf_fallback_requires_copy:
+                return None, self._pdf.load_page(self.page_index)
+            if self._pdf_fallback_view is not None:
+                return None, self._pdf_fallback_view.load_page(self.page_index)
+            payload = self._pdf.tobytes()
+            self._check_preview_cancel()
+            if len(payload) <= 32 * 1024 * 1024:
+                self._pdf_fallback_view = fitz.open(stream=payload, filetype='pdf')
+                return None, self._pdf_fallback_view.load_page(self.page_index)
+            # Avoid retaining an extra large in-memory PDF. The legacy path
+            # remains for giant documents with unsupported OCG configurations.
+            temp = fitz.open(stream=payload, filetype='pdf')
             return temp, temp.load_page(self.page_index)
         if not any(self._states.values()):
             # Preserve the established blank-state preview sizing contract.
@@ -839,15 +940,16 @@ class DrawingDocument:
             if self._serialize_fallback or self.path.stat().st_size > 96 * 1024 * 1024:
                 return None
         elif self._cad_view_pdf is not None:
-            # The 4th-pass CAD DisplayList candidate has not passed real
-            # 402MiB field-DXF performance / memory validation. Preserve
-            # the ThreePass source-size guard for large documents; the
-            # fast-path remains available only on smaller source drawings.
+            # Experimental candidate only: opt in in a controlled, isolated
+            # audit. Never switch the validated >96MiB field renderer on in
+            # the regular UI until actual-DXF RGB/RSS/latency gates pass.
+            source_large = self.path.stat().st_size > 96 * 1024 * 1024
+            if source_large and not getattr(self, '_experimental_large_cad_displaylist', False):
+                return None
             stats = self._cad_selective_last_stats
-            if (self.path.stat().st_size > 96 * 1024 * 1024 or
-                    self._cad_view_pdf_bytes > 2 * 1024 * 1024 or
+            if (self._cad_view_pdf_bytes > 2 * 1024 * 1024 or
                     self._cad_selective_key != tuple(self._states.items()) or
-                    stats is None or stats.selected_entities > 512):
+                    stats is None or not 0 < stats.selected_entities <= 512):
                 return None
         elif self._cad_layered_pdf is None or self.path.stat().st_size > 96 * 1024 * 1024:
             return None
@@ -1019,9 +1121,11 @@ class DrawingDocument:
                 # scaling, DPI and all vector commands. Fail safely on uncertain
                 # inspection rather than silently removing any map symbols.
                 # The native small-image path can inspect its own pixmap
-                # without rasterizing the PDF twice. Large exports use a
-                # bounded preview to choose a streaming clip region.
-                crop = (find_content_crop(page, width, height)
+                # without rasterizing the PDF twice. Large exports use an
+                # exact scanline pass so even fine details remain intact.
+                crop = (find_content_crop(page, width, height,
+                                          progress=(lambda p: progress(p * .5)) if progress else None,
+                                          cancelled=cancelled)
                         if opts.fmt == 'png' and opts.crop_margins
                         and width * height > 12_000_000 else None)
                 out_width = crop[2] - crop[0] if crop else width
@@ -1043,16 +1147,23 @@ class DrawingDocument:
                             image = Image.frombytes(channels,(pix.width,pix.height),pix.samples)
                             try:
                                 trim = image_ink_bbox(image)
-                                if trim:
-                                    selected = image.crop(trim)
-                                    try:
-                                        selected.save(temporary,format='PNG',dpi=(dpi,dpi))
-                                    finally:
-                                        selected.close()
-                                else:
-                                    image.save(temporary,format='PNG',dpi=(dpi,dpi))
                             finally:
                                 image.close()
+                            if trim:
+                                # PyMuPDF RGBA pixmap samples are premultiplied.
+                                # Saving them through Pillow darkens soft alpha
+                                # edges. Crop the ORIGINAL pixmap natively so
+                                # MuPDF handles PNG alpha conversion exactly as
+                                # in the uncropped export.
+                                px, py = pix.irect[:2]
+                                region = fitz.IRect(trim[0]+px, trim[1]+py,
+                                                    trim[2]+px, trim[3]+py)
+                                selected = fitz.Pixmap(pix, pix.width, pix.height, region)
+                                selected.set_dpi(dpi, dpi)
+                                selected.save(str(temporary))
+                            else:
+                                pix.set_dpi(dpi, dpi)
+                                pix.save(str(temporary))
                         else:
                             pix.set_dpi(dpi,dpi)
                             pix.save(str(temporary))
@@ -1064,7 +1175,9 @@ class DrawingDocument:
                 elif opts.fmt=='png':
                     with open(temporary,'wb') as stream:
                         save_png_tiled(page,stream,out_width,out_height,dpi,
-                                       progress=progress,cancelled=cancelled,
+                                       progress=(lambda p: progress(.5 + p * .5))
+                                       if opts.crop_margins and progress else progress,
+                                       cancelled=cancelled,
                                        transparent=opts.background=='transparent',
                                        source_rect=(crop[0],crop[1],width,height) if crop else None)
                         stream.flush();os.fsync(stream.fileno())
@@ -1083,6 +1196,7 @@ class DrawingDocument:
             if temporary is not None: temporary.unlink(missing_ok=True)
 
     def close(self):
+        self._close_pdf_fallback_view()
         self._close_cad_view()
         self._cad_selective = None
         self._cad_selective_key = None
@@ -1121,26 +1235,55 @@ class DrawingDocument:
 _cache = threading.local()
 
 
+def close_thread_document() -> None:
+    """Release the current thread's cached document and native file handles.
+
+    Call when an owning worker exits or a test tears down source fixtures.
+    Normal render jobs retain the one-document cache for fast repeated previews.
+    Never share or close another thread's PyMuPDF document from this function.
+    """
+    previous = getattr(_cache, "document", None)
+    _cache.document = None
+    _cache.signature = None
+    if previous is not None:
+        previous.close()
+
+
 def _thread_document(path: str) -> DrawingDocument:
     normalized = str(Path(path).expanduser().resolve())
     stat = Path(normalized).stat()
     signature = (normalized, stat.st_size, stat.st_mtime_ns)
     if getattr(_cache, "signature", None) != signature:
         previous = getattr(_cache, "document", None)
+        # Invalidate before closing. A failed PDF open must not leave a closed
+        # 400MiB CAD object referenced as this thread's active document.
+        _cache.document = None
+        _cache.signature = None
         if previous is not None:
             previous.close()
-        _cache.document = DrawingDocument(normalized)
+        current = DrawingDocument(normalized)
+        _cache.document = current
         _cache.signature = signature
     return _cache.document
 
 
 def render_snapshot(path: str, states: dict[int | str, bool], page_index: int,
                     preview_size: tuple[int, int],
-                    clip: tuple[float,float,float,float] | None = None) -> bytes:
+                    clip: tuple[float,float,float,float] | None = None,
+                    *, cancelled=None) -> bytes:
+    if cancelled and cancelled():
+        raise RenderCancelled('미리보기 중단됨')
     doc = _thread_document(path)
-    doc.apply_snapshot(states)
-    doc.page_index = page_index
-    return doc.render_bytes(OutputOptions("png"), preview=preview_size, clip=clip)
+    doc._preview_cancelled = cancelled
+    try:
+        doc._check_preview_cancel()
+        doc.apply_snapshot(states)
+        doc.page_index = page_index
+        result = doc.render_bytes(OutputOptions('png'), preview=preview_size, clip=clip)
+        doc._check_preview_cancel()
+        return result
+    finally:
+        doc._preview_cancelled = None
 
 
 def export_snapshot(path: str, states: dict[int | str, bool], page_index: int,
@@ -1152,9 +1295,20 @@ def export_snapshot(path: str, states: dict[int | str, bool], page_index: int,
 
 
 def preview_snapshot(path: str, states: dict[int | str,bool], page_index: int,
-                     preview_size: tuple[int,int]) -> tuple[bytes, tuple[float,float]]:
+                     preview_size: tuple[int,int], *, cancelled=None) -> tuple[bytes, tuple[float,float]]:
     """Fetch preview + page geometry from the SAME document/render context."""
+    if cancelled and cancelled():
+        raise RenderCancelled('미리보기 중단됨')
     doc = _thread_document(path)
+    doc._preview_cancelled = cancelled
+    try:
+        return _preview_snapshot_active(doc, states, page_index, preview_size)
+    finally:
+        doc._preview_cancelled = None
+
+
+def _preview_snapshot_active(doc, states, page_index, preview_size):
+    doc._check_preview_cancel()
     doc.apply_snapshot(states)
     doc.page_index = page_index
     cache_key = (page_index, tuple(doc._states.items()), preview_size, None)
@@ -1184,6 +1338,7 @@ def preview_snapshot(path: str, states: dict[int | str,bool], page_index: int,
             doc._preview_geometry_cache.move_to_end(cache_key)
             while len(doc._preview_geometry_cache) > 8:
                 doc._preview_geometry_cache.popitem(last=False)
+        doc._check_preview_cancel()
         return data, geometry
     finally:
         if temp is not None:temp.close()

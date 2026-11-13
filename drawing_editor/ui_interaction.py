@@ -50,3 +50,45 @@ def clamp_zoom_factor(current_scale: float, fit_scale: float, requested: float) 
         return 1.0 if requested < 1 else requested
     target = max(lower, min(upper, current_scale * requested))
     return target / current_scale
+
+
+def preview_raster_size(logical_width: int, logical_height: int, dpr: float) -> tuple[int, int]:
+    """Build the overview at screen-pixel density, within the existing RAM caps.
+
+    A logical-pixel overview followed immediately by a HiDPI detail render
+    wasted a second full native rasterization at 125-175% Windows scaling.
+    """
+    from math import ceil, isfinite
+    density = max(1.0, min(4.0, dpr)) if isfinite(dpr) else 1.0
+    return (max(240, min(1600, ceil(max(1, logical_width - 10) * density))),
+            max(240, min(1300, ceil(max(1, logical_height - 10) * density))))
+
+
+def detail_tile_covers(visible: tuple[float, float, float, float] | None,
+                       tile: tuple[float, float, float, float] | None,
+                       tile_density: float, requested_density: float) -> bool:
+    """Skip a native raster pass when an existing overscan tile is sufficient.
+
+    Work in page coordinates. Avoid accepting a low-resolution tile after zoom.
+    """
+    if visible is None or tile is None or tile_density <= 0 or requested_density <= 0:
+        return False
+    x0, y0, x1, y1 = visible
+    a0, b0, a1, b1 = tile
+    epsilon = 0.01  # floating-point viewport conversion tolerance in PDF points
+    return (a0 <= x0 + epsilon and b0 <= y0 + epsilon and
+            a1 + epsilon >= x1 and b1 + epsilon >= y1 and
+            tile_density * 1.01 >= requested_density)
+
+
+def catalog_result_is_current(seq: int, actual_path: str | None,
+                              expected_path: str | None,
+                              latest: dict[str, int],
+                              documents: dict) -> bool:
+    """Reject late responses for removed/replaced file registrations.
+
+    A pathname alone cannot identify a registration: the user can remove a file
+    and add the same path while an earlier catalog job remains in flight.
+    """
+    return (bool(actual_path) and actual_path == expected_path
+            and latest.get(actual_path) == seq and actual_path in documents)

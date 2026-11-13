@@ -13,6 +13,7 @@ import unittest
 from drawing_editor.core import (
     DrawingDocument, DrawingError, OutputOptions,
     _thread_document, render_snapshot, preview_snapshot, export_snapshot,
+    close_thread_document,
 )
 
 
@@ -63,11 +64,20 @@ class DrawingCoreTests(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
+        self.addCleanup(close_thread_document)
         self.directory = Path(tmp.name)
         self.pdf = self.directory / 'layered.pdf'
         self.dxf = self.directory / 'sample.dxf'
         create_pdf(self.pdf)
         create_dxf(self.dxf)
+
+    def test_release_cached_document_closes_native_pdf_handle(self):
+        preview_snapshot(str(self.pdf), {}, 0, (320, 240))
+        cached = _thread_document(str(self.pdf))
+        self.assertIsNotNone(cached._pdf)
+        close_thread_document()
+        self.assertIsNone(cached._pdf)
+        self.assertIsNone(_thread_document.__globals__['_cache'].document)
 
     @staticmethod
     def sha(path):
@@ -167,8 +177,10 @@ class DrawingCoreTests(unittest.TestCase):
             states = doc.states()
             states[doc.layers()[-1].key] = False
         target = self.directory / 'result.png'
-        self.assertEqual(export_snapshot(str(self.pdf), states, 0,
-                                         str(target), OutputOptions('png')), str(target))
+        actual = export_snapshot(str(self.pdf), states, 0,
+                                 str(target), OutputOptions('png'))
+        # Windows may normalize 8.3 paths (RUNNER~1) to long names.
+        self.assertTrue(Path(actual).samefile(target))
         self.assertTrue(target.is_file())
 
     def test_no_overwrite_and_no_partials(self):

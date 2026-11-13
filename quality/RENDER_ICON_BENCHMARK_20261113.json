@@ -1,0 +1,76 @@
+{
+  "date": "2026-11-13",
+  "os": "Linux",
+  "material": "Synthetic 960×720 points 4 OCG layers; 1,500 lines+300 circles",
+  "n_repeat": 5,
+  "windows_runtime": "NOT RUN",
+  "actual_onmap_pdf": "NOT RUN",
+  "render": {
+    "1.25": {
+      "baseline_median_seconds": 0.10345,
+      "optimized_median_seconds": 0.05325,
+      "ratio": 1.943,
+      "before_rasters_per_fit": 2,
+      "after_rasters_per_fit": 1,
+      "preview_pixels_before": [
+        790,
+        590
+      ],
+      "preview_pixels_after": [
+        988,
+        738
+      ],
+      "actual_rendered_image": [
+        984,
+        738
+      ],
+      "png_sha256": "ef66498d4e8d6cb00a75a4f9d3ffac043a7bc136ffca80a4a135b994a294ef33"
+    },
+    "1.5": {
+      "baseline_median_seconds": 0.108,
+      "optimized_median_seconds": 0.06569,
+      "ratio": 1.644,
+      "before_rasters_per_fit": 2,
+      "after_rasters_per_fit": 1,
+      "preview_pixels_before": [
+        790,
+        590
+      ],
+      "preview_pixels_after": [
+        1185,
+        885
+      ],
+      "actual_rendered_image": [
+        1180,
+        885
+      ],
+      "png_sha256": "314866c699e14b607b393bb8e6b7dba935bc473a829c311cf85cc10b020f8796"
+    },
+    "1.75": {
+      "baseline_median_seconds": 0.12717,
+      "optimized_median_seconds": 0.08271,
+      "ratio": 1.537,
+      "before_rasters_per_fit": 2,
+      "after_rasters_per_fit": 1,
+      "preview_pixels_before": [
+        790,
+        590
+      ],
+      "preview_pixels_after": [
+        1383,
+        1033
+      ],
+      "actual_rendered_image": [
+        1377,
+        1033
+      ],
+      "png_sha256": "41af52f4640c0a8550157770049b7f588bfadf7a10de1e3c943b3b4bf22730df"
+    }
+  },
+  "tile_reuse": {
+    "clip_count": 4,
+    "existing_candidate_native_renders": 4,
+    "new_reused_native_renders": 1,
+    "note": "Illustrative coverage count, not a measured GUI speed-up"
+  }
+}

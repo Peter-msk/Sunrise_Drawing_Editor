@@ -1,0 +1,61 @@
+{
+  "input_type": "synthetic_only",
+  "inserts": 9533,
+  "expanded_lines": 19066,
+  "runs": [
+    {
+      "stock": {
+        "seconds": 2.22492,
+        "stream_sha256": "dabb4abddb9ec5728c8fb70825af6c080d02c379fcca80fec0fba1d9437e919b",
+        "pixel_sha256": "651fa6e70ca0dab67b19822cb027b0d72f273eb50cc25b08b1c17d964bc987c8",
+        "pdf_bytes": 208306
+      },
+      "threepass": {
+        "seconds": 1.13534,
+        "stream_sha256": "dabb4abddb9ec5728c8fb70825af6c080d02c379fcca80fec0fba1d9437e919b",
+        "pixel_sha256": "651fa6e70ca0dab67b19822cb027b0d72f273eb50cc25b08b1c17d964bc987c8",
+        "pdf_bytes": 208306
+      },
+      "stream_equal": true,
+      "pixels_equal": true
+    },
+    {
+      "threepass": {
+        "seconds": 1.14325,
+        "stream_sha256": "dabb4abddb9ec5728c8fb70825af6c080d02c379fcca80fec0fba1d9437e919b",
+        "pixel_sha256": "651fa6e70ca0dab67b19822cb027b0d72f273eb50cc25b08b1c17d964bc987c8",
+        "pdf_bytes": 208306
+      },
+      "stock": {
+        "seconds": 2.16512,
+        "stream_sha256": "dabb4abddb9ec5728c8fb70825af6c080d02c379fcca80fec0fba1d9437e919b",
+        "pixel_sha256": "651fa6e70ca0dab67b19822cb027b0d72f273eb50cc25b08b1c17d964bc987c8",
+        "pdf_bytes": 208306
+      },
+      "stream_equal": true,
+      "pixels_equal": true
+    },
+    {
+      "stock": {
+        "seconds": 2.0236,
+        "stream_sha256": "dabb4abddb9ec5728c8fb70825af6c080d02c379fcca80fec0fba1d9437e919b",
+        "pixel_sha256": "651fa6e70ca0dab67b19822cb027b0d72f273eb50cc25b08b1c17d964bc987c8",
+        "pdf_bytes": 208306
+      },
+      "threepass": {
+        "seconds": 1.1864,
+        "stream_sha256": "dabb4abddb9ec5728c8fb70825af6c080d02c379fcca80fec0fba1d9437e919b",
+        "pixel_sha256": "651fa6e70ca0dab67b19822cb027b0d72f273eb50cc25b08b1c17d964bc987c8",
+        "pdf_bytes": 208306
+      },
+      "stream_equal": true,
+      "pixels_equal": true
+    }
+  ],
+  "all_stream_equal": true,
+  "all_pixels_equal": true,
+  "stock_median_seconds": 2.16512,
+  "threepass_median_seconds": 1.14325,
+  "speedup_ratio": 1.894,
+  "field_402mib_dxf": "NOT RUN"
+}

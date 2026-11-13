@@ -11,7 +11,7 @@ import fitz
 from PIL import Image
 
 from drawing_editor.core import (DrawingDocument, DrawingError, OutputOptions,
-                                 preview_snapshot, _thread_document)
+                                 preview_snapshot, _thread_document, close_thread_document)
 from drawing_editor.batch import plan_exports, run_batch_exports
 from drawing_editor.tiles import raster_stripes, save_png_tiled
 
@@ -31,6 +31,7 @@ class ResolutionTest(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
+        self.addCleanup(close_thread_document)
         self.folder = Path(temp.name)
         self.landscape = self.folder / 'landscape.pdf'
         self.portrait = self.folder / 'portrait.pdf'

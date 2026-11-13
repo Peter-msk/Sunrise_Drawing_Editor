@@ -1,0 +1,26 @@
+{
+  "source_type": "real_file",
+  "source_path_basename": "SAMPLE_3_LAYERS.dxf",
+  "source_size_bytes": 16148,
+  "source_sha256_before": "36e3b0b8932ff91d74ab2f1f324d72166d16bb1dd9c24ec545f135bec4f50819",
+  "enabled_layers": [],
+  "environment": {
+    "system": "Linux",
+    "python": "3.13.5",
+    "pymupdf": "1.26.7",
+    "ezdxf": "1.4.4",
+    "psutil_rss_available": true
+  },
+  "cad_to_pdf_and_staging_seconds": 0.0111,
+  "staged_pdf_bytes": null,
+  "selected_entities": null,
+  "selective_staging_used": false,
+  "page_size_pt": [
+    226.0,
+    155.0
+  ],
+  "decision": "DEFER",
+  "reason": "Candidate size/entity guard not satisfied",
+  "source_sha256_after": "36e3b0b8932ff91d74ab2f1f324d72166d16bb1dd9c24ec545f135bec4f50819",
+  "source_unchanged": true
+}

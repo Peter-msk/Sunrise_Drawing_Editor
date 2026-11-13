@@ -13,7 +13,7 @@ from drawing_editor.batch import (
     LayerRule, LayerRuleStore, layer_name_key, apply_rule, plan_exports,
     run_batch_exports,
 )
-from drawing_editor.core import DrawingDocument, DrawingError, OutputOptions
+from drawing_editor.core import DrawingDocument, DrawingError, OutputOptions, close_thread_document
 from test_core import create_pdf, create_dxf
 
 
@@ -21,6 +21,7 @@ class BatchFeatureTests(unittest.TestCase):
     def setUp(self):
         temp=tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
+        self.addCleanup(close_thread_document)
         self.root=Path(temp.name)
         self.pdf_a=self.root/'onmap01.pdf'
         self.pdf_b=self.root/'onmap02.pdf'
