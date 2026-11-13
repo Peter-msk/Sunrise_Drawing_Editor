@@ -1,0 +1,174 @@
+diff --git a/drawing_editor/window.py b/drawing_editor/window.py
+--- a/drawing_editor/window.py
++++ b/drawing_editor/window.py
+@@ -281,6 +281,10 @@
+         self.signals=Signals()
+ 
+     def run(self):
++        if self.mode == 'batch_export':
++            # Allow preview/catalog tasks to acquire MuPDF between file exports.
++            self._run_guarded()
++            return
+         # A cancelled queued task must be able to leave the MuPDF gate without
+         # waiting behind a long native renderer, especially during shutdown.
+         while not _MUPDF_GATE.acquire(timeout=0.15):
+@@ -311,7 +315,8 @@
+                         last_update[0]=now
+                         self.signals.batch_progress.emit(self.seq,index,total,fraction,name)
+                 value=run_batch_exports(self.jobs,self.options,progress=progress,
++                       cancelled=self.cancel_event.is_set if self.cancel_event else None,
++                       render_gate=_MUPDF_GATE)
+-                       cancelled=self.cancel_event.is_set if self.cancel_event else None)
+             else:
+                 progress=lambda p:self.signals.progress.emit(self.mode,self.seq,p)
+                 cancelled=self.cancel_event.is_set if self.cancel_event else None
+@@ -328,13 +333,16 @@
+     Return only primitive layer metadata; never give a QWidget a MuPDF document
+     created in a different thread, and never keep dozens of large CAD objects.
+     """
++    def __init__(self, seq: int, path: str, cancel_event=None):
+-    def __init__(self, seq: int, path: str):
+         super().__init__()
+         self.seq, self.path = seq, path
++        self.cancel_event = cancel_event
+         self.signals = Signals()
+ 
+     def run(self):
+         try:
++            if self.cancel_event is not None and self.cancel_event.is_set():
++                raise InterruptedError('등록 취소')
+             # Large ASCII DXF: read only the layer table. Do not construct an
+             # extra full CAD model just to populate the file list.
+             kind = Path(self.path).suffix.lower()
+@@ -345,12 +353,19 @@
+                 # Only PDFs need the MuPDF gate for metadata. CAD metadata
+                 # loading is independent, so Explorer batch adds stay fast.
+                 if kind == '.pdf':
++                    while not _MUPDF_GATE.acquire(timeout=0.15):
++                        if self.cancel_event is not None and self.cancel_event.is_set():
++                            raise InterruptedError('등록 취소')
++                    try:
+-                    with _MUPDF_GATE:
+                         with DrawingDocument(self.path) as document:
+                             value = (self.path, document.layers(), document.pages)
++                    finally:
++                        _MUPDF_GATE.release()
+                 else:
+                     with DrawingDocument(self.path) as document:
+                         value = (self.path, document.layers(), document.pages)
++            if self.cancel_event is not None and self.cancel_event.is_set():
++                raise InterruptedError('등록 취소')
+             self.signals.success.emit('catalog', self.seq, value)
+         except Exception as exc:
+             self.signals.error.emit('catalog', self.seq, f'{Path(self.path).name}: {exc}')
+@@ -374,6 +389,8 @@
+         self.documents={}
+         self._catalog_seq=0
+         self._catalog_paths={}
++        self._catalog_latest={}
++        self._catalog_cancellations={}
+         self.catalog_pool=QThreadPool(self)
+         self.catalog_pool.setMaxThreadCount(1)
+         self._layer_change_guard=False
+@@ -1397,8 +1414,11 @@
+                     if first is None:
+                         first = item
+                     self._catalog_seq += 1
++                    cancel_event=threading.Event()
++                    task = CatalogTask(self._catalog_seq, key, cancel_event=cancel_event)
+-                    task = CatalogTask(self._catalog_seq, key)
+                     self._catalog_paths[task.seq] = key
++                    self._catalog_latest[key] = task.seq
++                    self._catalog_cancellations[key] = cancel_event
+                     self._submit_catalog(task)
+                 except (DrawingError, OSError, ValueError) as exc:
+                     errors.append(str(exc))
+@@ -1477,6 +1497,10 @@
+             for row in rows:
+                 item = self.file_list.takeItem(row)
+                 key = item.data(Qt.ItemDataRole.UserRole)
++                self._catalog_latest.pop(key, None)
++                event = self._catalog_cancellations.pop(key, None)
++                if event is not None:
++                    event.set()
+                 doc = self.documents.pop(key, None)
+                 if doc is not None:
+                     doc.close()
+@@ -1816,8 +1840,12 @@
+                 self._export_busy=False
+             return
+         if mode=='catalog':
++            expected_path = self._catalog_paths.pop(seq, None)
+-            self._catalog_paths.pop(seq, None)
+             path, layers, pages = result
++            if expected_path != path or self._catalog_latest.get(path) != seq:
++                return
++            self._catalog_latest.pop(path, None)
++            self._catalog_cancellations.pop(path, None)
+             self._catalog_ready(path, layers, pages)
+         elif mode=='preview':
+             self._preview_busy=False
+@@ -1879,6 +1907,10 @@
+             return
+         if mode=='catalog':
+             path = self._catalog_paths.pop(seq, None)
++            if path is None or self._catalog_latest.get(path) != seq:
++                return
++            self._catalog_latest.pop(path, None)
++            self._catalog_cancellations.pop(path, None)
+             if path is not None:
+                 for row in range(self.file_list.count()):
+                     item = self.file_list.item(row)
+@@ -1958,6 +1990,8 @@
+ 
+     def closeEvent(self,event):
+         self.preview_timer.stop();self.detail_timer.stop()
++        for event_to_cancel in self._catalog_cancellations.values():
++            event_to_cancel.set()
+         if not self._pools_idle():
+             if self._closing:
+                 self._close_prompted=False
+diff --git a/drawing_editor/batch.py b/drawing_editor/batch.py
+--- a/drawing_editor/batch.py
++++ b/drawing_editor/batch.py
+@@ -213,7 +213,8 @@
+ 
+ def run_batch_exports(jobs: Sequence[ExportJob], options: OutputOptions,
+                       progress: Callable[[int, int, float, str], None] | None = None,
++                      cancelled: Callable[[], bool] | None = None,
++                      render_gate=None) -> BatchResult:
+-                      cancelled: Callable[[], bool] | None = None) -> BatchResult:
+     """Sequential bounded-memory exports; per-file failures do not cancel others."""
+     completed: list[str] = []
+     errors: list[tuple[str, str]] = []
+@@ -224,12 +225,24 @@
+         if progress:
+             progress(index, total, 0., Path(job.source).name)
+         try:
++            acquired = False
++            if render_gate is not None:
++                while not render_gate.acquire(timeout=0.15):
++                    if cancelled and cancelled():
++                        raise InterruptedError('이미지 추출이 취소되었습니다.')
++                acquired = True
++            try:
++                if cancelled and cancelled():
++                    raise InterruptedError('이미지 추출이 취소되었습니다.')
++                result = export_snapshot(
++                    job.source, job.states, job.page_index, job.target, options,
++                    progress=(lambda value, idx=index, name=Path(job.source).name:
++                              progress(idx, total, value, name)) if progress else None,
++                    cancelled=cancelled,
++                )
++            finally:
++                if acquired:
++                    render_gate.release()
+-            result = export_snapshot(
+-                job.source, job.states, job.page_index, job.target, options,
+-                progress=(lambda value, idx=index, name=Path(job.source).name:
+-                          progress(idx, total, value, name)) if progress else None,
+-                cancelled=cancelled,
+-            )
+             completed.append(result)
+         except Exception as exc:
+             if cancelled and cancelled():
