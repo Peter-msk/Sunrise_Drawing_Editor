@@ -18,6 +18,9 @@ class ExactBranchIdentityTest(unittest.TestCase):
         (self.root / "drawing_editor").mkdir()
         (self.root / "drawing_editor" / "__init__.py").write_text("", encoding="utf-8")
         (self.root / "main.py").write_text("print('safe')\n", encoding="utf-8")
+        (self.root / "quality").mkdir()
+        (self.root / "quality" / "audit.py").write_text(
+            "print('checked')\n", encoding="utf-8")
         (self.root / "RUN_P0_QA.cmd").write_text("@echo off\n", encoding="utf-8")
         self.git("init", "-q")
         self.git("checkout", "-qb", REQUIRED_BRANCH)
@@ -39,7 +42,7 @@ class ExactBranchIdentityTest(unittest.TestCase):
         identity = check_source(self.root)
         self.assertEqual(identity["commit"], self.git("rev-parse", "HEAD"))
         self.assertEqual(identity["branch"], REQUIRED_BRANCH)
-        self.assertEqual(identity["tracked_files_hashed"], 3)
+        self.assertEqual(identity["tracked_files_hashed"], 4)
         self.assertEqual(len(identity["source_sha256"]), 64)
 
     def test_changed_tracked_source_fails(self):
@@ -52,6 +55,24 @@ class ExactBranchIdentityTest(unittest.TestCase):
             "print('override')\n", encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "Untracked"):
             check_source(self.root)
+
+    def test_modified_tracked_qa_script_fails(self):
+        (self.root / "quality" / "audit.py").write_text(
+            "print('unsafe edit')\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "modified"):
+            check_source(self.root)
+
+    def test_untracked_qa_python_file_fails(self):
+        (self.root / "quality" / "unknown.py").write_text(
+            "print('unverified')\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "Untracked"):
+            check_source(self.root)
+
+    def test_generated_json_report_is_allowed(self):
+        (self.root / "quality" / "P0_runtime").mkdir()
+        (self.root / "quality" / "P0_runtime" / "SOURCE_IDENTITY.json").write_text(
+            "{}\n", encoding="utf-8")
+        self.assertEqual(check_source(self.root)["status"], "SOURCE_IDENTITY_PASS")
 
     def test_wrong_commit_fails(self):
         with self.assertRaisesRegex(ValueError, "HEAD"):
