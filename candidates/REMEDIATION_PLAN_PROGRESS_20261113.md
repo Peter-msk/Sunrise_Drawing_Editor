@@ -12,12 +12,12 @@
 | 단계 | 배점 | 현재 인정 점수 | 완료 근거 / 미완료 |
 |---|---:|---:|---|
 | 1. 소스 이력·결함 경계 확정 | 10 | 10 | 누적 패치 문맥 및 호출 경로 정적 감사 |
-| 2. P0 렌더 프로세스 격리·취소·종료 | 35 | 15 | 별도 CAD worker + GUI/Onefile 경로 + 유휴 메모리 해제 구현; Windows 실물 NOT RUN |
+| 2. P0 렌더 프로세스 격리·취소·종료 | 35 | 20 | 하위 CAD 렌더 워커·GUI 연동 + 온맵 전환 비차단 종료/비동기 reaper 반영; 실물/Windows NOT RUN |
 | 3. 카탈로그·파일/레이어 생명주기 | 20 | 6 | 제거·재추가 세대 검사 및 PDF 카탈로그 취소, 일괄 export gate 코드 반영 |
-| 4. 라이트·다크 테마·아이콘 | 15 | 2 | 45개 SVG(40개 신규) 복원, Windows 배율·대비 실측 NOT RUN |
+| 4. 라이트·다크 테마·아이콘 | 15 | 4 | SVG 40개 존재 및 토큰 대비 정적 점검, 새 7개 시험 작성; Windows 시각 QA NOT RUN |
 | 5. 실물 기능/성능/출력 회귀 | 10 | 0 | 7개 worker 시험 및 실물 DXF→PDF QA 도구 작성, 실행 NOT RUN |
 | 6. Windows Onefile/서명/배포 판정 | 10 | 0 | NOT RUN |
-| **총계** | **100** | **33** | **구현·정적 검토 진행률, 릴리즈 검증 완료율 아님** |
+| **총계** | **100** | **40** | **구현·정적 검토 진행률, 릴리즈 검증 완료율 아님** |
 
 ## 패치 1: catalog generation + batch MuPDF gate
 - candidates/P0_CATALOG_LIFECYCLE_BATCH_GATE_20261113.patch
@@ -61,3 +61,17 @@
 - Work was verified via source patch context/hunk counts and GitHub branch file fetch. **Python execution, 421MiB field DXF, Windows runtime, DPI, signed Onefile: NOT RUN**.
 - QA reference: `candidates/P0_PROCESS_ISOLATION_QA_20261113.md`.
 - No official main/Drive deployment. Previously generated hash manifest is historical and not an attestation for this branch.
+
+
+## Stage 3 checkpoint — 2026-11-13, ~40% implementation progress
+
+- Real follow-on change: `drawing_editor/cad_worker.py` now supports a nonblocking `background=True` reaper; GUI OnMap selection calls `shutdown_all_workers(background=True)` and no longer waits synchronously for a 0.8+0.8 second process termination sequence. Reaper thread is **non-daemon** so cleanup can finish without leaving an orphan on normal interpreter exit.
+- Active CAD response polling detects `self.closed` and yields `RenderCancelled`, instead of lingering behind a native subprocess after the GUI switched drawings.
+- `tests/test_cad_worker_process.py`: 8 written tests (includes async worker reaping contract).
+- `tests/test_p0_catalog_batch_gate.py`: 7 written tests now in discoverable `tests/` rather than only in `candidates/`.
+- `tests/test_hidpi_theme_icons_regression.py`: 7 independently authored tests to replace the corrupted historical HiDPI test patch; checks 20 light/dark icon pairs, theme text contrast and raster reuse. It does not claim real Qt visual verification.
+- `RUN_P0_QA.cmd`: targeted test runner for these 22 tests, plus optional 10-cycle field DXF→OnMap test; full historical suite only with `RUN_ALL_TESTS=1`.
+- `quality/qa_dxf_onmap_handoff.py`: write a failure JSON report even when real QA aborts; RSS clearly identified as **parent process only**, not child peak RSS.
+- Pure JavaScript inspection of theme values found light panel/foreground contrast 10.99:1, light muted/panel 5.00:1, dark foreground/panel 12.91:1 and dark muted/panel 7.89:1; rendered Windows colors/contrast not tested.
+- **Execution status**: container and Python runtime unavailable in this session; new 22 tests, Windows GUI, 421MiB DXF, real OnMap PDF and Onefile/SignTool are all NOT RUN. Do not use progress percentage as QA PASS.
+- Official main, Drive baseline, signed EXE untouched; work only on isolated GitHub branch.
