@@ -1555,7 +1555,8 @@ class DrawingWindow(QMainWindow):
         # After a large DXF, release even an IDLE native worker before
         # showing an OnMap PDF. Otherwise 400MiB CAD memory remains resident.
         if doc is None or not should_isolate_cad(str(doc.path)):
-            shutdown_all_workers()
+            # Terminate immediately; wait/cleanup must not stall Qt file selection.
+            shutdown_all_workers(background=True)
         self.canvas.clear_preview()
         self._update_zoom_label()
         self.layer_search.blockSignals(True)
