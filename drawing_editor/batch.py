@@ -213,7 +213,8 @@ def plan_exports(docs: Sequence[DrawingDocument], folder: str | Path,
 
 def run_batch_exports(jobs: Sequence[ExportJob], options: OutputOptions,
                       progress: Callable[[int, int, float, str], None] | None = None,
-                      cancelled: Callable[[], bool] | None = None) -> BatchResult:
+                      cancelled: Callable[[], bool] | None = None,
+                      render_gate=None) -> BatchResult:
     """Sequential bounded-memory exports; per-file failures do not cancel others."""
     completed: list[str] = []
     errors: list[tuple[str, str]] = []
@@ -224,12 +225,24 @@ def run_batch_exports(jobs: Sequence[ExportJob], options: OutputOptions,
         if progress:
             progress(index, total, 0., Path(job.source).name)
         try:
-            result = export_snapshot(
-                job.source, job.states, job.page_index, job.target, options,
-                progress=(lambda value, idx=index, name=Path(job.source).name:
-                          progress(idx, total, value, name)) if progress else None,
-                cancelled=cancelled,
-            )
+            acquired = False
+            if render_gate is not None:
+                while not render_gate.acquire(timeout=0.15):
+                    if cancelled and cancelled():
+                        raise InterruptedError('이미지 추출이 취소되었습니다.')
+                acquired = True
+            try:
+                if cancelled and cancelled():
+                    raise InterruptedError('이미지 추출이 취소되었습니다.')
+                result = export_snapshot(
+                    job.source, job.states, job.page_index, job.target, options,
+                    progress=(lambda value, idx=index, name=Path(job.source).name:
+                              progress(idx, total, value, name)) if progress else None,
+                    cancelled=cancelled,
+                )
+            finally:
+                if acquired:
+                    render_gate.release()
             completed.append(result)
         except Exception as exc:
             if cancelled and cancelled():

@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 import threading
 import time
 
-from PySide6.QtCore import Qt, QRunnable, QThreadPool, QTimer, QObject, Signal, QSettings, QRectF, QStandardPaths, QSize
-from PySide6.QtGui import QColor, QBrush, QPainter, QPixmap, QIcon, QTransform, QAction
+from PySide6.QtCore import Qt, QRunnable, QThreadPool, QTimer, QObject, Signal, QSettings, QRectF, QStandardPaths, QSize, QEvent
+from PySide6.QtGui import QColor, QBrush, QPainter, QPixmap, QIcon, QTransform, QAction, QPalette
 from PySide6.QtWidgets import (
     QMainWindow, QToolBar, QWidget, QLabel, QFrame, QHBoxLayout, QVBoxLayout,
     QPushButton, QListWidget, QListWidgetItem, QAbstractItemView, QTreeWidget,
@@ -16,16 +17,24 @@ from PySide6.QtWidgets import (
     QSpinBox, QHeaderView, QApplication, QScrollArea,
 )
 
-from .core import (DrawingDocument, DrawingError, OutputOptions,
+from .core import (DrawingDocument, DrawingError, RenderCancelled, OutputOptions,
                    render_snapshot, preview_snapshot, export_snapshot)
 from .batch import LayerRule, LayerRuleStore, apply_rule, plan_exports, run_batch_exports
 from .icons import icon_file
+from .cad_worker import should_isolate_cad, render_isolated, shutdown_all_workers
 from .state import DrawingState
 from .cad_catalog import read_ascii_dxf_layers
 from .ui_design import THEMES, panel_layout
-from .ui_interaction import matching_editable_layers, file_add_status, zoom_factor_for_delta, clamp_zoom_factor
+from .ui_interaction import (matching_editable_layers, file_add_status,
+                             zoom_factor_for_delta, clamp_zoom_factor,
+                             preview_raster_size, detail_tile_covers)
 
 ASSETS = Path(__file__).resolve().parent.parent / 'assets'
+# PyMuPDF's native cache is process-global. Concurrent PDF raster/metadata
+# calls from separate Qt pools can hang or crash even with distinct documents.
+# Keep GUI responsive but serialize only the native MuPDF work. For parallel
+# rendering use independent processes, never more concurrent Python threads.
+_MUPDF_GATE = threading.RLock()
 
 
 class ImageCanvas(QGraphicsView):
@@ -43,7 +52,7 @@ class ImageCanvas(QGraphicsView):
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.empty_label = QLabel('도면을 추가하면 여기에 미리보기가 표시됩니다.\n'
-                                  '왼쪽 파일 목록으로 PDF · DXF · DWG를 끌어 놓을 수도 있습니다.',
+                                  'PDF · DXF · DWG 파일을 이 화면으로 끌어 놓을 수도 있습니다.',
                                   self.viewport())
         self.empty_label.setObjectName('canvasEmpty')
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -55,6 +64,8 @@ class ImageCanvas(QGraphicsView):
         self._base = None
         self._detail = None
         self._base_density = 0.
+        self._detail_clip = None
+        self._detail_density = 0.
         self.horizontalScrollBar().valueChanged.connect(self.viewChanged.emit)
         self.verticalScrollBar().valueChanged.connect(self.viewChanged.emit)
 
@@ -102,11 +113,15 @@ class ImageCanvas(QGraphicsView):
                                                 (y1-y0)/pix.height()))
         self.scene().addItem(item)
         self._detail=item
+        self._detail_clip = clip
+        self._detail_density = min(pix.width() / (x1-x0), pix.height() / (y1-y0))
 
     def clear_detail(self):
         if self._detail is not None:
             self.scene().removeItem(self._detail)
             self._detail=None
+        self._detail_clip = None
+        self._detail_density = 0.
 
     def fit_image(self):
         if self._base is not None:
@@ -149,17 +164,33 @@ class ImageCanvas(QGraphicsView):
         if self.auto_fit:self.fit_image()
         else:self.viewChanged.emit()
 
-    def visible_clip(self):
+    def visible_clip(self, padding: float = 0.):
         w,h=self.page_size
         if w<=0 or h<=0:return None
-        r=self.mapToScene(self.viewport().rect()).boundingRect().intersected(QRectF(0,0,w,h))
+        r=self.mapToScene(self.viewport().rect()).boundingRect()
+        if padding > 0:
+            # Cache a small halo for smooth panning. It never leaves the page.
+            r=r.adjusted(-r.width()*padding, -r.height()*padding,
+                         r.width()*padding, r.height()*padding)
+        r=r.intersected(QRectF(0,0,w,h))
         if r.isEmpty():return None
         return (r.left(),r.top(),r.right(),r.bottom())
 
     def needs_detail(self):
         # Request real PDF pixels only when the overview bitmap has become blurry.
-        return (self._base is not None and
-                self.transform().m11()*self.devicePixelRatioF() > self._base_density*1.14)
+        if self._base is None:
+            return False
+        density = self.transform().m11() * self.devicePixelRatioF()
+        if density <= self._base_density * 1.14:
+            return False
+        # A cached native-resolution overscan tile already covers the view:
+        # pan/scroll does not need to repeat the same expensive CAD/PDF pass.
+        return not self.detail_covers_view()
+
+    def detail_covers_view(self):
+        density = self.transform().m11() * self.devicePixelRatioF()
+        return detail_tile_covers(self.visible_clip(), self._detail_clip,
+                                  self._detail_density, density)
 
 
 class ElidedLabel(QLabel):
@@ -248,14 +279,54 @@ class RenderTask(QRunnable):
         self.clip=clip
         self.cancel_event=cancel_event
         self.jobs=tuple(jobs or ())
+        self._isolated_cad=False
         self.signals=Signals()
 
     def run(self):
+        # A large DXF runs in its own process: no GUI-process MuPDF gate.
+        # Its native renderer can be terminated when the user selects OnMap.
+        self._isolated_cad = (self.mode in ('preview', 'detail')
+                              and should_isolate_cad(self.path))
+        if self._isolated_cad:
+            self._run_guarded()
+            return
+        if self.mode == 'batch_export':
+            # Allow preview/catalog tasks to acquire MuPDF between file exports.
+            self._run_guarded()
+            return
+        # A cancelled queued task must be able to leave the MuPDF gate without
+        # waiting behind a long native renderer, especially during shutdown.
+        while not _MUPDF_GATE.acquire(timeout=0.15):
+            if self.cancel_event is not None and self.cancel_event.is_set():
+                self.signals.error.emit(self.mode, self.seq, '미리보기 중단됨')
+                return
         try:
+            self._run_guarded()
+        finally:
+            _MUPDF_GATE.release()
+
+    def _run_guarded(self):
+        try:
+            if self.cancel_event is not None and self.cancel_event.is_set():
+                raise RenderCancelled('미리보기 중단됨')
             if self.mode=='preview':
-                value=preview_snapshot(self.path,self.states,self.page,self.preview_size)
+                if self._isolated_cad:
+                    value=render_isolated('preview',self.path,self.states,self.page,
+                                          self.preview_size,
+                                          cancelled=self.cancel_event.is_set if self.cancel_event else None)
+                else:
+                    value=preview_snapshot(self.path,self.states,self.page,self.preview_size,
+                                           cancelled=self.cancel_event.is_set if self.cancel_event else None)
             elif self.mode=='detail':
-                value=(render_snapshot(self.path,self.states,self.page,self.preview_size,clip=self.clip),self.clip)
+                if self._isolated_cad:
+                    pixels=render_isolated('detail',self.path,self.states,self.page,
+                                            self.preview_size,clip=self.clip,
+                                            cancelled=self.cancel_event.is_set if self.cancel_event else None)
+                    value=(pixels,self.clip)
+                else:
+                    value=(render_snapshot(self.path,self.states,self.page,self.preview_size,
+                                           clip=self.clip,
+                                           cancelled=self.cancel_event.is_set if self.cancel_event else None),self.clip)
             elif self.mode=='batch_export':
                 last_update=[0.0]
                 def progress(index,total,fraction,name):
@@ -264,7 +335,8 @@ class RenderTask(QRunnable):
                         last_update[0]=now
                         self.signals.batch_progress.emit(self.seq,index,total,fraction,name)
                 value=run_batch_exports(self.jobs,self.options,progress=progress,
-                       cancelled=self.cancel_event.is_set if self.cancel_event else None)
+                       cancelled=self.cancel_event.is_set if self.cancel_event else None,
+                       render_gate=_MUPDF_GATE)
             else:
                 progress=lambda p:self.signals.progress.emit(self.mode,self.seq,p)
                 cancelled=self.cancel_event.is_set if self.cancel_event else None
@@ -281,22 +353,39 @@ class CatalogTask(QRunnable):
     Return only primitive layer metadata; never give a QWidget a MuPDF document
     created in a different thread, and never keep dozens of large CAD objects.
     """
-    def __init__(self, seq: int, path: str):
+    def __init__(self, seq: int, path: str, cancel_event=None):
         super().__init__()
         self.seq, self.path = seq, path
+        self.cancel_event = cancel_event
         self.signals = Signals()
 
     def run(self):
         try:
+            if self.cancel_event is not None and self.cancel_event.is_set():
+                raise InterruptedError('등록 취소')
             # Large ASCII DXF: read only the layer table. Do not construct an
             # extra full CAD model just to populate the file list.
-            layers = (read_ascii_dxf_layers(self.path)
-                      if Path(self.path).suffix.lower() == '.dxf' else None)
+            kind = Path(self.path).suffix.lower()
+            layers = read_ascii_dxf_layers(self.path) if kind == '.dxf' else None
             if layers is not None:
                 value = (self.path, layers, 1)
             else:
-                with DrawingDocument(self.path) as document:
-                    value = (self.path, document.layers(), document.pages)
+                # Only PDFs need the MuPDF gate for metadata. CAD metadata
+                # loading is independent, so Explorer batch adds stay fast.
+                if kind == '.pdf':
+                    while not _MUPDF_GATE.acquire(timeout=0.15):
+                        if self.cancel_event is not None and self.cancel_event.is_set():
+                            raise InterruptedError('등록 취소')
+                    try:
+                        with DrawingDocument(self.path) as document:
+                            value = (self.path, document.layers(), document.pages)
+                    finally:
+                        _MUPDF_GATE.release()
+                else:
+                    with DrawingDocument(self.path) as document:
+                        value = (self.path, document.layers(), document.pages)
+            if self.cancel_event is not None and self.cancel_event.is_set():
+                raise InterruptedError('등록 취소')
             self.signals.success.emit('catalog', self.seq, value)
         except Exception as exc:
             self.signals.error.emit('catalog', self.seq, f'{Path(self.path).name}: {exc}')
@@ -320,12 +409,18 @@ class DrawingWindow(QMainWindow):
         self.documents={}
         self._catalog_seq=0
         self._catalog_paths={}
+        self._catalog_latest={}
+        self._catalog_cancellations={}
         self.catalog_pool=QThreadPool(self)
         self.catalog_pool.setMaxThreadCount(1)
         self._layer_change_guard=False
         self._preview_seq=self._detail_seq=self._export_seq=0
         self._preview_busy=self._detail_busy=self._export_busy=False
         self._preview_pending=self._detail_pending=False
+        self._preview_cancel=self._detail_cancel=None
+        self._preview_started=0.0
+        self._closing=False
+        self._close_prompted=False
         self._active_tasks={}
         self._export_cancel=None
         # Keep previews on one worker to reuse its thread-local multi-MB CAD
@@ -344,6 +439,10 @@ class DrawingWindow(QMainWindow):
         # Wait for zoom/pan to settle instead of serially rendering stale clips.
         self.detail_timer.setInterval(230)
         self.detail_timer.timeout.connect(self._start_detail)
+        self.task_watchdog=QTimer(self)
+        self.task_watchdog.setInterval(1000)
+        self.task_watchdog.timeout.connect(self._check_background_tasks)
+        self.task_watchdog.start()
         self._settings=QSettings('Sunrise','DrawingEditor')
         data_dir=QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
         self._rule_store=LayerRuleStore(Path(data_dir or (Path.home()/'.sunrise_drawing_editor'))/'layer_rules.json')
@@ -356,6 +455,13 @@ class DrawingWindow(QMainWindow):
         theme=self._settings.value('theme','light')
         self._theme=theme if theme in ('light','dark') else 'light'
         self._build_ui()
+        # Explorer drops work on the main window and the drawing canvas, not
+        # exclusively on the narrow left-hand file list.
+        self.setAcceptDrops(True)
+        self.centralWidget().setAcceptDrops(True)
+        self.centralWidget().installEventFilter(self)
+        self.canvas.viewport().setAcceptDrops(True)
+        self.canvas.viewport().installEventFilter(self)
         self._refresh_rule_names()
         self._apply_theme()
         self.statusBar().showMessage('원본 비파괴 · 선택 도면 일괄 규칙 적용 · 대용량 이미지 일괄 추출')
@@ -367,7 +473,36 @@ class DrawingWindow(QMainWindow):
         if initial_paths:
             QTimer.singleShot(0,lambda:self.add_files(initial_paths))
 
-    def _icon(self,name):return QIcon(icon_file(name,ASSETS))
+    def _icon(self,name):
+        # Every action icon follows light/dark contrast. Primary buttons
+        # retain white glyphs against the accent background.
+        theme = None if name in ('export_white', 'stop_white') else self._theme
+        return QIcon(icon_file(name, ASSETS, theme))
+
+    def eventFilter(self, obj, event):
+        if obj in (self.canvas.viewport(), self.centralWidget()) and event.type() in (
+                QEvent.Type.DragEnter, QEvent.Type.DragMove, QEvent.Type.Drop):
+            return self._handle_file_drop(event)
+        return super().eventFilter(obj, event)
+
+    def _handle_file_drop(self, event):
+        paths = FileDropList._paths(event.mimeData())
+        if not paths or self._closing:
+            event.ignore()
+            return False
+        if event.type() == QEvent.Type.Drop:
+            self.add_files(paths)
+        event.acceptProposedAction()
+        return True
+
+    def dragEnterEvent(self, event):
+        self._handle_file_drop(event)
+
+    def dragMoveEvent(self, event):
+        self._handle_file_drop(event)
+
+    def dropEvent(self, event):
+        self._handle_file_drop(event)
 
     @staticmethod
     def _panel(name):
@@ -384,7 +519,7 @@ class DrawingWindow(QMainWindow):
         toolbar.setMovable(False)
         toolbar.setFloatable(False)
         toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        toolbar.setIconSize(QSize(19, 19))
+        toolbar.setIconSize(QSize(18, 18))
         self.addToolBar(toolbar)
         self.add_action = toolbar.addAction(self._icon('add'), '도면 추가')
         self.add_action.setObjectName('addDrawingAction')
@@ -686,7 +821,20 @@ class DrawingWindow(QMainWindow):
         preview_layout.addWidget(self.canvas, 1)
         self.view_status = ElidedLabel('레이어를 변경하면 자동 갱신 · 마우스 휠로 확대/축소')
         self.view_status.setObjectName('hint')
-        preview_layout.addWidget(self.view_status)
+        preview_status_row=QHBoxLayout()
+        preview_status_row.addWidget(self.view_status, 1)
+        self.retry_preview_button=QPushButton('다시 렌더')
+        self.retry_preview_button.setObjectName('retryPreviewButton')
+        self.retry_preview_button.setToolTip('현재 레이어로 미리보기를 다시 그립니다.')
+        self.retry_preview_button.clicked.connect(self.request_preview)
+        preview_status_row.addWidget(self.retry_preview_button)
+        self.cancel_preview_button=QPushButton('중단')
+        self.cancel_preview_button.setObjectName('cancelPreviewButton')
+        self.cancel_preview_button.setToolTip('오래된 렌더를 취소 요청합니다. 원본 파일은 변경되지 않습니다.')
+        self.cancel_preview_button.clicked.connect(self.cancel_preview)
+        self.cancel_preview_button.hide()
+        preview_status_row.addWidget(self.cancel_preview_button)
+        preview_layout.addLayout(preview_status_row)
         columns.addWidget(preview_frame, 1)
         # With 150–175% DPI the work area can scroll vertically while the
         # export actions remain permanently visible at the bottom.
@@ -809,6 +957,7 @@ class DrawingWindow(QMainWindow):
         self.browse_button.setObjectName('browseOutputFolderButton')
         self.browse_button.setProperty('uxRole', 'subAction')
         self.browse_button.setIcon(self._icon('folder'))
+        self.browse_button.setIconSize(QSize(18, 18))
         self.browse_button.setToolTip('이미지 저장 폴더 선택')
         self.browse_button.clicked.connect(self.pick_output_dir)
         destination.addWidget(self.browse_button)
@@ -820,7 +969,7 @@ class DrawingWindow(QMainWindow):
         self.export_button.setObjectName('exportDrawingsButton')
         self.export_button.setProperty('uxRole', 'primary')
         self.export_button.setIcon(self._icon('export_white'))
-        self.export_button.setIconSize(QSize(19,19))
+        self.export_button.setIconSize(QSize(18, 18))
         self.export_button.setMinimumWidth(166)
         self.export_button.setAccessibleName('선택한 도면 이미지 추출')
         self.export_button.clicked.connect(self.export_selected)
@@ -839,8 +988,7 @@ class DrawingWindow(QMainWindow):
         for control in (self.select_all_button, self.clear_selection_button,
                         self.remove_selected_button, self.layer_on_button,
                         self.layer_off_button, self.save_rule_button,
-                        self.apply_rule_button, self.delete_rule_button,
-                        self.browse_button):
+                        self.apply_rule_button, self.delete_rule_button):
             control.setIconSize(QSize(16, 16))
         self._apply_responsive_layout(self.width())
         self._configure_tab_order()
@@ -989,6 +1137,23 @@ class DrawingWindow(QMainWindow):
         highlight, canvas = palette.selection, palette.canvas
         primary, primary_hover = palette.primary, palette.primary_hover
         active_text = palette.active_text
+        # Explicit Qt palette roles are the fallback for native/embedded
+        # controls which do not inherit the stylesheet's color selector.
+        qt_palette = self.palette()
+        for role, value in (
+            (QPalette.ColorRole.Window, bg),
+            (QPalette.ColorRole.WindowText, fg),
+            (QPalette.ColorRole.Base, input_bg),
+            (QPalette.ColorRole.Text, fg),
+            (QPalette.ColorRole.Button, input_bg),
+            (QPalette.ColorRole.ButtonText, fg),
+            (QPalette.ColorRole.PlaceholderText, muted),
+        ):
+            qt_palette.setColor(role, QColor(value))
+        for role in (QPalette.ColorRole.WindowText,
+                     QPalette.ColorRole.Text, QPalette.ColorRole.ButtonText):
+            qt_palette.setColor(QPalette.ColorGroup.Disabled, role, QColor(muted))
+        self.setPalette(qt_palette)
         self.canvas.setBackgroundBrush(QBrush(QColor(canvas)))
         self.light_button.setProperty('active', light)
         self.dark_button.setProperty('active', not light)
@@ -998,7 +1163,8 @@ class DrawingWindow(QMainWindow):
             QMainWindow,QWidget#drawingRoot,QWidget#workArea,QScrollArea#workAreaScroll {{background:{bg};}}
             QWidget#drawingRoot,QToolBar#toolbar {{color:{fg};font-family:"Malgun Gothic","Noto Sans CJK KR",sans-serif;font-size:12px;}}
             QToolBar#toolbar {{background:{panel};border-bottom:1px solid {border};spacing:5px;padding:6px 10px;}}
-            QToolBar#toolbar QToolButton {{padding:7px 9px;border:1px solid transparent;border-radius:6px;}}
+            QToolBar#toolbar QToolButton {{padding:7px 9px;border:1px solid transparent;border-radius:6px;color:{fg};}}
+            QToolBar#toolbar QToolButton:disabled {{color:{muted};}}
             QToolBar#toolbar QToolButton:hover {{background:{hover};border-color:{border};}}
             QLabel#brand {{font-size:10px;color:{muted};font-weight:700;}}
             QWidget#drawingRoot QPushButton,QWidget#drawingRoot QToolButton,QToolBar#toolbar QPushButton {{
@@ -1018,7 +1184,7 @@ class DrawingWindow(QMainWindow):
             QWidget#drawingRoot QPushButton[uxRole="primary"]:disabled {{background:#80746E;border-color:#80746E;color:#FFFFFF;}}
             QFrame#filesPane,QFrame#layersPane,QFrame#pane,QGroupBox#exportPanel {{background:{panel};border:1px solid {border};border-radius:8px;}}
             QGroupBox#exportPanel {{margin-top:11px;font-weight:700;}}
-            QGroupBox#exportPanel::title {{subcontrol-origin:margin;left:12px;padding:0 6px;}}
+            QGroupBox#exportPanel::title {{subcontrol-origin:margin;left:12px;padding:0 6px;color:{fg};}}
             QLabel#panelHeader {{font-size:14px;font-weight:700;color:{fg};}}
             QLabel#panelSubheader {{font-weight:600;color:{fg};}}
             QLabel#hint {{color:{muted};font-size:11px;}}
@@ -1028,6 +1194,8 @@ class DrawingWindow(QMainWindow):
             QLabel#zoomInfo,QLabel#pageInfo {{color:{fg};font-size:11px;font-weight:600;}}
             QWidget#drawingRoot QLabel,QWidget#drawingRoot QCheckBox,QWidget#drawingRoot QRadioButton,
             QWidget#drawingRoot QGroupBox {{color:{fg};}}
+            QWidget#drawingRoot QLabel:disabled,QWidget#drawingRoot QCheckBox:disabled,
+            QWidget#drawingRoot QRadioButton:disabled {{color:{muted};}}
             QListWidget,QTreeWidget {{background:{input_bg};color:{fg};alternate-background-color:{bg};border:1px solid {border};border-radius:5px;outline:none;selection-background-color:{highlight};selection-color:{fg};}}
             QListWidget::item,QTreeWidget::item {{color:{fg};}}
             QListWidget::item:hover,QTreeWidget::item:hover {{background:{hover};color:{fg};}}
@@ -1042,6 +1210,7 @@ class DrawingWindow(QMainWindow):
             QGraphicsView#previewCanvas {{border:1px solid {border};border-radius:5px;}}
             QWidget#drawingRoot QLineEdit,QWidget#drawingRoot QComboBox,QWidget#drawingRoot QSpinBox {{background:{input_bg};color:{fg};border:1px solid {border};border-radius:5px;padding:5px 7px;min-height:23px;}}
             QWidget#drawingRoot QComboBox QAbstractItemView {{background:{input_bg};color:{fg};selection-background-color:{highlight};selection-color:{fg};}}
+            QWidget#drawingRoot QComboBox QAbstractItemView::item {{color:{fg};min-height:22px;}}
             QWidget#drawingRoot QLineEdit:disabled,QWidget#drawingRoot QComboBox:disabled {{color:{muted};background:{bg};}}
             QScrollBar:vertical {{background:{bg};width:12px;margin:1px;border:0;}}
             QScrollBar:horizontal {{background:{bg};height:12px;margin:1px;border:0;}}
@@ -1056,9 +1225,34 @@ class DrawingWindow(QMainWindow):
             QProgressBar::chunk {{background:{primary};border-radius:3px;}}
         ''')
         # Theme state is a dynamic Qt property; repolish both buttons.
+        # All loaded buttons must refresh their SVG variant when the theme
+        # changes; otherwise a dark icon could stay on a light background.
+        self.add_action.setIcon(self._icon('add'))
+        self.remove_action.setIcon(self._icon('remove'))
+        for button, name in (
+            (self.light_button, 'sun'), (self.dark_button, 'moon'),
+            (self.select_all_button, 'select_all'),
+            (self.clear_selection_button, 'deselect'),
+            (self.remove_selected_button, 'remove'),
+            (self.layer_on_button, 'visible'), (self.layer_off_button, 'hidden'),
+            (self.save_rule_button, 'save'), (self.apply_rule_button, 'apply'),
+            (self.delete_rule_button, 'delete'),
+            (self.page_prev_button, 'prev'), (self.page_next_button, 'next'),
+            (self.zoom_out_button, 'zoom_out'),
+            (self.zoom_in_button, 'zoom_in'), (self.fit_button, 'fit'),
+            (self.browse_button, 'folder')):
+            button.setIcon(self._icon(name))
+        drawing_icon = self._icon('drawing')
+        for row in range(self.file_list.count()):
+            self.file_list.item(row).setIcon(drawing_icon)
         for button in (self.light_button, self.dark_button):
             button.style().unpolish(button)
             button.style().polish(button)
+        # A single physical icon slot keeps SVG glyph/text baselines aligned
+        # across all toolbar/form buttons at 100-175% Windows DPI.
+        for button in self.findChildren(QPushButton):
+            if not button.icon().isNull():
+                button.setIconSize(QSize(18, 18))
 
     def set_theme(self,value):
         if self._theme!=value:
@@ -1213,31 +1407,43 @@ class DrawingWindow(QMainWindow):
 
     def add_files(self, paths):
         """Register files immediately; parse large CAD/PDF metadata off the GUI thread."""
+        if self._closing:
+            return
         first, errors, added, duplicates = None, [], 0, 0
-        for path in paths:
-            try:
-                key = str(Path(path).expanduser().resolve())
-                if key in self.documents:
-                    duplicates += 1
-                    continue
-                state = DrawingState(key)
-                state.pending_rule = (self._selected_rule()
-                    if self.auto_apply_rules.isChecked() else None)
-                self.documents[key] = state
-                added += 1
-                item = QListWidgetItem(f'[{state.kind.upper()}]  {state.path.name}  (읽는 중)')
-                item.setIcon(self._icon('drawing'))
-                item.setData(Qt.ItemDataRole.UserRole, key)
-                item.setToolTip(key)
-                self.file_list.addItem(item)
-                if first is None:
-                    first = item
-                self._catalog_seq += 1
-                task = CatalogTask(self._catalog_seq, key)
-                self._catalog_paths[task.seq] = key
-                self._submit_catalog(task)
-            except (DrawingError, OSError, ValueError) as exc:
-                errors.append(str(exc))
+        # A large Explorer drop must not trigger a repaint + SVG disk load for
+        # every row. Preserve the existing one-document-per-worker contract.
+        drawing_icon = self._icon('drawing')
+        rule = self._selected_rule() if self.auto_apply_rules.isChecked() else None
+        self.file_list.setUpdatesEnabled(False)
+        try:
+            for path in paths:
+                try:
+                    key = str(Path(path).expanduser().resolve())
+                    if key in self.documents:
+                        duplicates += 1
+                        continue
+                    state = DrawingState(key)
+                    state.pending_rule = rule
+                    self.documents[key] = state
+                    added += 1
+                    item = QListWidgetItem(f'[{state.kind.upper()}]  {state.path.name}  (읽는 중)')
+                    item.setIcon(drawing_icon)
+                    item.setData(Qt.ItemDataRole.UserRole, key)
+                    item.setToolTip(key)
+                    self.file_list.addItem(item)
+                    if first is None:
+                        first = item
+                    self._catalog_seq += 1
+                    cancel_event=threading.Event()
+                    task = CatalogTask(self._catalog_seq, key, cancel_event=cancel_event)
+                    self._catalog_paths[task.seq] = key
+                    self._catalog_latest[key] = task.seq
+                    self._catalog_cancellations[key] = cancel_event
+                    self._submit_catalog(task)
+                except (DrawingError, OSError, ValueError) as exc:
+                    errors.append(str(exc))
+        finally:
+            self.file_list.setUpdatesEnabled(True)
         self._update_file_selection_count()
         if first is not None and self.file_list.currentItem() is None:
             self.file_list.setCurrentItem(first)
@@ -1311,6 +1517,10 @@ class DrawingWindow(QMainWindow):
             for row in rows:
                 item = self.file_list.takeItem(row)
                 key = item.data(Qt.ItemDataRole.UserRole)
+                self._catalog_latest.pop(key, None)
+                event = self._catalog_cancellations.pop(key, None)
+                if event is not None:
+                    event.set()
                 doc = self.documents.pop(key, None)
                 if doc is not None:
                     doc.close()
@@ -1334,6 +1544,13 @@ class DrawingWindow(QMainWindow):
         self.statusBar().showMessage(f'{len(rows)}개 도면을 목록에서 제거했습니다. 원본은 유지됩니다.', 8000)
 
     def _selection_changed(self,current,previous):
+        # Signal cancellation at the very beginning of a file switch. Parsing
+        # hundreds of DXF/OCG layer rows before requesting a preview otherwise
+        # keeps the old 400MiB render alive for the entire UI rebuild.
+        if self._preview_cancel is not None:
+            self._preview_cancel.set()
+        if self._detail_cancel is not None:
+            self._detail_cancel.set()
         doc=self.current_doc()
         self.canvas.clear_preview()
         self._update_zoom_label()
@@ -1441,52 +1658,94 @@ class DrawingWindow(QMainWindow):
         self.canvas.fit_image();self.request_detail()
 
     def request_preview(self):
+        if self._closing:
+            return
         self._preview_seq+=1
         self._detail_seq+=1
         self._preview_pending=True
         self._detail_pending=False
+        if self._preview_cancel is not None:
+            self._preview_cancel.set()  # obsolete layer/page/file snapshot
+        if self._detail_cancel is not None:
+            self._detail_cancel.set()
         # A changed layer state invalidates an in-flight detail render.
-        self.view_status.setText('레이어 변경 대기 · 연속 조작을 모아 미리보기 갱신')
+        if self._preview_busy:
+            self.view_status.setText('이전 도면 렌더 취소 요청 · 선택한 도면 미리보기 대기')
+        else:
+            self.view_status.setText('레이어 변경 대기 · 연속 조작을 모아 미리보기 갱신')
         self.detail_timer.stop()
         self.canvas.clear_detail()
         self.preview_timer.start()
 
     def _start_preview(self):
-        if self._preview_busy or not self._preview_pending:return
+        if self._closing or self._preview_busy or not self._preview_pending:return
         doc=self.current_doc()
         self._preview_pending=False
         if not doc or not doc.loaded:return
         self._preview_busy=True
+        self.cancel_preview_button.show()
+        self._preview_cancel=threading.Event()
+        self._preview_started=time.monotonic()
         self.view_status.setText('레이어 미리보기 렌더링 중…')
         viewport=self.canvas.viewport().size()
-        size=(max(240,min(1600,viewport.width()-10)),max(240,min(1300,viewport.height()-10)))
-        self._submit(RenderTask('preview',self._preview_seq,str(doc.path),doc.states(),doc.page_index,size))
+        size=preview_raster_size(viewport.width(), viewport.height(),
+                                 self.canvas.devicePixelRatioF())
+        self._submit(RenderTask('preview',self._preview_seq,str(doc.path),doc.states(),doc.page_index,
+                                size,cancel_event=self._preview_cancel))
 
     def request_detail(self):
+        if self._closing:
+            return
         # Every view change invalidates old clip results, including changes
         # while a background raster job is already running.
         self._detail_seq += 1
+        if self._detail_cancel is not None:
+            self._detail_cancel.set()
         if self.canvas.needs_detail():
             self._detail_pending = True
             self.detail_timer.start()
         else:
             self._detail_pending = False
             self.detail_timer.stop()
-            self.canvas.clear_detail()
+            # Keep an adequate cached tile on small pans; remove it only when
+            # the overview itself is sharp enough (zoom out / fit view).
+            density = self.canvas.transform().m11() * self.canvas.devicePixelRatioF()
+            if (density <= self.canvas._base_density * 1.14 or
+                    not self.canvas.detail_covers_view()):
+                self.canvas.clear_detail()
 
     def _start_detail(self):
-        if self._detail_busy or not self._detail_pending or self._preview_busy or self._preview_pending:return
+        if self._closing or self._detail_busy or not self._detail_pending or self._preview_busy or self._preview_pending:return
         doc=self.current_doc()
         if doc is None:return
-        clip=self.canvas.visible_clip()
+        clip=self.canvas.visible_clip(padding=0.15)
         if clip is None:return
         self._detail_pending=False
         self._detail_busy=True
+        self._detail_cancel=threading.Event()
         viewport=self.canvas.viewport().size()
-        w=max(64,round(min(4000,viewport.width()*self.canvas.devicePixelRatioF())))
-        h=max(64,round(min(4000,viewport.height()*self.canvas.devicePixelRatioF())))
+        # Raster at native monitor density over the padded clip. A 15% halo
+        # avoids re-rendering for small scrolls; cap each dimension to 4000px.
+        page_pixels = self.canvas.transform().m11() * self.canvas.devicePixelRatioF()
+        w=max(64,min(4000,round((clip[2]-clip[0])*page_pixels)))
+        h=max(64,min(4000,round((clip[3]-clip[1])*page_pixels)))
         self.view_status.setText('확대 영역 고해상도 렌더링 중…')
-        self._submit(RenderTask('detail',self._detail_seq,str(doc.path),doc.states(),doc.page_index,(w,h),clip=clip))
+        self._submit(RenderTask('detail',self._detail_seq,str(doc.path),doc.states(),doc.page_index,
+                                (w,h),clip=clip,cancel_event=self._detail_cancel))
+
+    def cancel_preview(self):
+        """Cancel stale preview/detail work without mutating document layers."""
+        self.preview_timer.stop();self.detail_timer.stop()
+        self._preview_seq += 1
+        self._detail_seq += 1
+        self._preview_pending=self._detail_pending=False
+        if self._preview_cancel is not None:
+            self._preview_cancel.set()
+        if self._detail_cancel is not None:
+            self._detail_cancel.set()
+        self.view_status.setText('미리보기 중단 요청됨 · 다시 렌더를 눌러 재시도')
+        if not self._preview_busy:
+            self.cancel_preview_button.hide()
 
     def _update_resolution_controls(self, *_args):
         mode = self.resolution_combo.currentData()
@@ -1592,12 +1851,26 @@ class DrawingWindow(QMainWindow):
 
     def _success(self,mode,seq,result):
         self._active_tasks.pop((mode,seq),None)
+        if self._closing:
+            if mode == 'preview':
+                self._preview_busy=False
+            elif mode == 'detail':
+                self._detail_busy=False
+            elif mode in ('batch_export','export'):
+                self._export_busy=False
+            return
         if mode=='catalog':
-            self._catalog_paths.pop(seq, None)
+            expected_path = self._catalog_paths.pop(seq, None)
             path, layers, pages = result
+            if expected_path != path or self._catalog_latest.get(path) != seq:
+                return
+            self._catalog_latest.pop(path, None)
+            self._catalog_cancellations.pop(path, None)
             self._catalog_ready(path, layers, pages)
         elif mode=='preview':
             self._preview_busy=False
+            self._preview_cancel=None
+            self.cancel_preview_button.hide()
             if seq==self._preview_seq and not self._preview_pending:
                 try:
                     data,size=result
@@ -1607,16 +1880,19 @@ class DrawingWindow(QMainWindow):
                         self.view_status.setText(f'{doc.kind.upper()} · {len(doc.layers())}개 레이어 · '+
                                                  ('표시 변경 반영' if doc.dirty else '원본 표시'))
                     self.request_detail()
-                except DrawingError as exc:self.view_status.setText(str(exc))
+                except (DrawingError, RuntimeError, ValueError) as exc:
+                    self.view_status.setText('미리보기 표시 실패: '+str(exc))
             if self._preview_pending:self._start_preview()
         elif mode=='detail':
             self._detail_busy=False
+            self._detail_cancel=None
             if seq==self._detail_seq and not self._detail_pending and not self._preview_busy:
                 try:
                     data,clip=result
                     self.canvas.show_detail(data,clip)
                     self.view_status.setText('확대 영역 원본에서 고해상도 갱신 완료')
-                except DrawingError as exc:self.view_status.setText(str(exc))
+                except (DrawingError, RuntimeError, ValueError) as exc:
+                    self.view_status.setText('확대 이미지 표시 실패: '+str(exc))
             if self._detail_pending and not self.detail_timer.isActive():
                 self.detail_timer.start()
         elif mode=='batch_export':
@@ -1641,8 +1917,20 @@ class DrawingWindow(QMainWindow):
 
     def _error(self,mode,seq,error):
         self._active_tasks.pop((mode,seq),None)
+        if self._closing:
+            if mode == 'preview':
+                self._preview_busy=False
+            elif mode == 'detail':
+                self._detail_busy=False
+            elif mode in ('batch_export','export'):
+                self._export_busy=False
+            return
         if mode=='catalog':
             path = self._catalog_paths.pop(seq, None)
+            if path is None or self._catalog_latest.get(path) != seq:
+                return
+            self._catalog_latest.pop(path, None)
+            self._catalog_cancellations.pop(path, None)
             if path is not None:
                 for row in range(self.file_list.count()):
                     item = self.file_list.item(row)
@@ -1655,10 +1943,14 @@ class DrawingWindow(QMainWindow):
             self.statusBar().showMessage('파일 읽기 실패: ' + error, 12000)
         elif mode=='preview':
             self._preview_busy=False
-            if seq==self._preview_seq:self.view_status.setText('미리보기 실패: '+error)
+            self._preview_cancel=None
+            self.cancel_preview_button.hide()
+            if seq==self._preview_seq and '중단' not in error:
+                self.view_status.setText('미리보기 실패: '+error)
             if self._preview_pending:self._start_preview()
         elif mode=='detail':
             self._detail_busy=False
+            self._detail_cancel=None
             if seq==self._detail_seq:self.view_status.setText('확대 렌더링 오류: '+error)
             if self._detail_pending and not self.detail_timer.isActive():
                 self.detail_timer.start()
@@ -1669,13 +1961,75 @@ class DrawingWindow(QMainWindow):
             else:
                 QMessageBox.warning(self,'이미지 추출 실패',error)
 
+    def _pools_idle(self):
+        return (self.pool.waitForDone(0) and self.export_pool.waitForDone(0)
+                and self.catalog_pool.waitForDone(0))
+
+    def _check_background_tasks(self):
+        if self._closing:
+            if self._pools_idle():
+                self.close()
+            elif (not self._close_prompted and
+                  time.monotonic() - self._close_requested_at > 4):
+                self._offer_force_exit()
+            return
+        # Distinguish a slow native renderer from a completed preview: never
+        # claim success, and always leave cancel/retry/close accessible.
+        if self._preview_busy and self._preview_started:
+            elapsed=int(time.monotonic()-self._preview_started)
+            if elapsed>=12:
+                if self._preview_pending:
+                    self.view_status.setText(
+                        f'이전 대형 도면 처리 {elapsed}초 · 취소 응답 후 최신 온맵 표시')
+                elif self._preview_cancel is not None and self._preview_cancel.is_set():
+                    self.view_status.setText(f'중단 요청 후 {elapsed}초 · 네이티브 작업 응답 대기')
+                else:
+                    self.view_status.setText(
+                        f'렌더링 응답 지연 {elapsed}초 · 중단/다시 렌더 또는 창 닫기 가능')
+
+    def _offer_force_exit(self):
+        if self._close_prompted or self._pools_idle():
+            return
+        self._close_prompted=True
+        answer=QMessageBox.question(
+            self,'렌더링 작업 응답 없음',
+            '렌더링 작업이 종료 요청에 응답하지 않습니다.\n'
+            '강제 종료하면 저장 중인 이미지의 임시파일이 남을 수 있습니다.\n'
+            '입력 PDF/DXF/DWG 원본은 수정하지 않습니다.\n\n'
+            '프로그램을 즉시 강제 종료할까요?',
+            QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if answer==QMessageBox.StandardButton.Yes:
+            # Python/Qt cannot kill an arbitrary blocked native QThread safely.
+            # This explicit, user-confirmed emergency exit prevents a permanent
+            # unclosable window. Never use for normal shutdown.
+            shutdown_all_workers()
+            os._exit(0)
+        # Continue waiting quietly. A second close click offers this choice
+        # again; the watchdog never opens repeated modal dialogs by itself.
+        self._close_prompted=True
+
     def closeEvent(self,event):
         self.preview_timer.stop();self.detail_timer.stop()
-        if self._export_busy and self._export_cancel:self._export_cancel.set()
-        if (not self.pool.waitForDone(0) or
-                not self.export_pool.waitForDone(0) or
-                not self.catalog_pool.waitForDone(0)):
-            self.statusBar().showMessage('렌더링 종료 중입니다. 완료 후 다시 닫아주세요.')
-            event.ignore();return
+        for event_to_cancel in self._catalog_cancellations.values():
+            event_to_cancel.set()
+        if not self._pools_idle():
+            if self._closing:
+                self._close_prompted=False
+                self._offer_force_exit()
+                event.ignore()
+                return
+            self._closing=True
+            self._close_requested_at=time.monotonic()
+            self.cancel_preview()
+            if self._export_cancel is not None:
+                self._export_cancel.set()
+            self.pool.clear();self.export_pool.clear();self.catalog_pool.clear()
+            self.view_status.setText('종료 요청됨 · 백그라운드 렌더 작업 정리 중…')
+            self.statusBar().showMessage('종료 요청됨 · 작업이 응답하지 않으면 강제 종료를 선택할 수 있습니다.')
+            event.ignore()
+            return
+        self.task_watchdog.stop()
+        shutdown_all_workers()
         for doc in self.documents.values():doc.close()
         super().closeEvent(event)

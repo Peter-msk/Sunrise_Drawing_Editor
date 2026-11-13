@@ -1,12 +1,19 @@
 from __future__ import annotations
 import sys
-from PySide6.QtWidgets import QApplication
-from PySide6.QtGui import QIcon
 from pathlib import Path
-from drawing_editor.window import DrawingWindow
 
 
 def main():
+    # Frozen onefile worker must bypass QApplication / QWidget construction.
+    # The child retains its own MuPDF/ezdxf state and can be terminated safely.
+    if len(sys.argv) > 1 and sys.argv[1] == '--cad-worker':
+        from drawing_editor.cad_worker import worker_main
+        return worker_main(sys.argv[2:])
+
+    from PySide6.QtWidgets import QApplication
+    from PySide6.QtGui import QIcon
+    from drawing_editor.window import DrawingWindow
+
     # Deterministic onefile smoke gate: initialize the packaged Qt / image/CAD
     # dependencies without starting the GUI event loop or contacting a server.
     if '--self-test' in sys.argv:
