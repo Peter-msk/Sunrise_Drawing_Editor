@@ -22,6 +22,15 @@ if not defined PY_RUN (
 %PY_RUN% "build\preflight.py" runtime
 if errorlevel 1 goto :failed
 
+echo [SOURCE GATE] Verify exact clean Git development branch
+if not exist "quality\P0_runtime" mkdir "quality\P0_runtime"
+if defined EXPECTED_SOURCE_SHA (
+    %PY_RUN% "quality\qa_exact_branch.py" --expected-commit "%EXPECTED_SOURCE_SHA%" --report "quality\P0_runtime\SOURCE_IDENTITY.json"
+) else (
+    %PY_RUN% "quality\qa_exact_branch.py" --report "quality\P0_runtime\SOURCE_IDENTITY.json"
+)
+if errorlevel 1 goto :failed
+
 echo [1/6] Isolated CAD worker: PNG parity, cancel, reuse, close
 %PY_RUN% -m unittest discover -s tests -p "test_cad_worker_process.py" -v
 if errorlevel 1 goto :failed
@@ -62,7 +71,16 @@ if /I "%RUN_ALL_TESTS%"=="1" (
     if errorlevel 1 goto :failed
 )
 echo.
+echo [SOURCE GATE] Recheck the same source after regression
+if defined EXPECTED_SOURCE_SHA (
+    %PY_RUN% "quality\qa_exact_branch.py" --expected-commit "%EXPECTED_SOURCE_SHA%" --report "quality\P0_runtime\SOURCE_IDENTITY.json"
+) else (
+    %PY_RUN% "quality\qa_exact_branch.py" --report "quality\P0_runtime\SOURCE_IDENTITY.json"
+)
+if errorlevel 1 goto :failed
+
 echo [PASS] Completed requested QA commands only.
+echo [INFO] SHA evidence: quality\P0_runtime\SOURCE_IDENTITY.json
 echo [INFO] Windows Qt GUI, signed EXE and DPI 100-175%% still require manual checks.
 popd
 exit /b 0
