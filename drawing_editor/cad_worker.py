@@ -174,6 +174,13 @@ class _CADSession:
                     self.close()
                     raise DrawingError("CAD 미리보기 시간 제한을 초과했습니다. 작업을 중단했습니다.")
                 time.sleep(_POLL_SECONDS)
+        except (OSError, ValueError) as exc:
+            # An OnMap file switch may terminate the child and remove IPC
+            # between response_path.is_file() and read_text()/read_bytes().
+            # The old preview was cancelled, not the source drawing corrupted.
+            if self.closed or (cancelled is not None and cancelled()):
+                raise RenderCancelled("미리보기 중단됨") from exc
+            raise
         finally:
             for path in (pending_path, request_path, response_path, image_path):
                 try:
