@@ -1235,6 +1235,20 @@ class DrawingDocument:
 _cache = threading.local()
 
 
+def close_thread_document() -> None:
+    """Release the current thread's cached document and native file handles.
+
+    Call when an owning worker exits or a test tears down source fixtures.
+    Normal render jobs retain the one-document cache for fast repeated previews.
+    Never share or close another thread's PyMuPDF document from this function.
+    """
+    previous = getattr(_cache, "document", None)
+    _cache.document = None
+    _cache.signature = None
+    if previous is not None:
+        previous.close()
+
+
 def _thread_document(path: str) -> DrawingDocument:
     normalized = str(Path(path).expanduser().resolve())
     stat = Path(normalized).stat()
