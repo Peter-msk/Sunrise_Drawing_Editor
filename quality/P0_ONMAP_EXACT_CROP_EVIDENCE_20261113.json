@@ -1,0 +1,76 @@
+{
+  "project": "Sunrise Drawing Editor",
+  "baseline": {
+    "git_repository": "Peter-msk/Sunrise_Drawing_Editor",
+    "branch": "main",
+    "commit": "2238b4b19bcda690669324de4a68644412ab1e5a",
+    "drive_zip_sha256": "4ab19e6532ba6f26479dfc97e46562930640f5fff51334957d8d611245e8cb84"
+  },
+  "scope": "P0 PNG exact content trim, alpha-safe white ink and native pixmap crop, original OnMap PDF local verification CLI",
+  "environment": {
+    "os": "Linux",
+    "python": "3.13",
+    "pymupdf": "1.26.7",
+    "pillow": "12.3.0",
+    "ezdxf": "1.4.4"
+  },
+  "regression": {
+    "baseline_test_count": 188,
+    "baseline_pass": 188,
+    "p0_new_test_count": 5,
+    "after_test_count": 193,
+    "after_pass": 193,
+    "after_failed": 0,
+    "source_compileall": "PASS"
+  },
+  "data_integrity": {
+    "input_source_unchanged": "PASS on synthetic and repository sample PDF",
+    "small_RGBA_native_crop_pixel_parity": "PASS",
+    "large_tiled_RGBA_pixel_parity": "PASS",
+    "white_ink_outside_RGB_ink_bbox": "PASS",
+    "OCG_toggle_invalidation": "PASS",
+    "cancel_temp_file_cleanup": "PASS",
+    "rotation_0_90_180_270_pixel_parity": "PASS"
+  },
+  "existing_output_compatibility": {
+    "opaque_png": "SHA256 equal to parent ZIP",
+    "transparent_png": "SHA256 equal to parent ZIP",
+    "jpg": "SHA256 equal to parent ZIP",
+    "large_no_crop_png": "SHA256 equal to parent ZIP"
+  },
+  "pdf_source_validation": {
+    "bundled_sample": "sample_data/SAMPLE_3_LAYERS.pdf",
+    "bundled_sample_ocgs": 3,
+    "bundled_sample_max_edge": 5000,
+    "bundled_sample_both_background_pixel_match": true,
+    "synthetic_pdf_with_ocg_off": true,
+    "synthetic_pdf_max_edge": 5000,
+    "original_user_onmap_pdf": "NOT RUN (original PDF is not available in supplied materials)"
+  },
+  "performance": {
+    "test_input": "synthetic OCG PDF, 5000x5000 PNG, crop_margins=True, transparent",
+    "same_linux_environment": true,
+    "baseline_three_runs_seconds": [
+      0.3235,
+      0.2442,
+      0.1913
+    ],
+    "patched_three_runs_seconds": [
+      1.0546,
+      0.8208,
+      0.6416
+    ],
+    "baseline_median_s": 0.2442,
+    "patched_median_s": 0.8208,
+    "caveat": "Accuracy-driven extra full-resolution raster pass. Values are not Windows benchmarks and should not be generalized."
+  },
+  "release_gates": {
+    "windows_qt_gui_100_175_dpi": "NOT RUN",
+    "windows_onefile_build": "NOT RUN",
+    "windows_signtool_sign": "NOT RUN",
+    "real_original_onmap_pdf": "NOT RUN",
+    "large_real_dxf": "NOT RUN (not changed)",
+    "git_main_updated": false,
+    "drive_official_baseline_replaced": false
+  }
+}

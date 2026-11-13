@@ -1,0 +1,60 @@
+{
+  "source_type": "synthetic",
+  "source_path_basename": null,
+  "source_size_bytes": null,
+  "source_sha256_before": null,
+  "enabled_layers": [],
+  "environment": {
+    "system": "Linux",
+    "python": "3.13.5",
+    "pymupdf": "1.26.7",
+    "ezdxf": "1.4.4",
+    "psutil_rss_available": true
+  },
+  "synthetic_fixture": {
+    "insert_count": 214,
+    "circle_paths": 16692,
+    "cad_to_pdf_seconds": 3.3304,
+    "pdf_bytes": 1229040
+  },
+  "staged_pdf_bytes": 1229040,
+  "page_size_pt": [
+    2299.0,
+    1472.0
+  ],
+  "viewport_count": 25,
+  "backgrounds": [
+    "opaque",
+    "transparent"
+  ],
+  "trials": [
+    {
+      "trial": 1,
+      "direct_seconds": 5.31194,
+      "displaylist_seconds": 1.26031
+    },
+    {
+      "trial": 2,
+      "direct_seconds": 5.31554,
+      "displaylist_seconds": 1.23088
+    },
+    {
+      "trial": 3,
+      "direct_seconds": 5.32714,
+      "displaylist_seconds": 1.32324
+    }
+  ],
+  "direct_median_seconds": 5.31554,
+  "displaylist_median_seconds": 1.26031,
+  "render_speedup_ratio": 4.218,
+  "all_pixel_hashes_equal": true,
+  "all_pixel_sizes_equal": true,
+  "displaylist_build_seconds": 0.0795,
+  "rss_before_mib": 164.89,
+  "rss_after_build_mib": 165.01,
+  "displaylist_rss_increase_mib": 0.12,
+  "net_speedup_including_build_ratio": 3.967,
+  "candidate_benchmarks_acceptable": true,
+  "decision": "DEFER",
+  "reason": "Synthetic input cannot authorize field adoption"
+}
