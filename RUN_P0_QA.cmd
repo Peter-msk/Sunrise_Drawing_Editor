@@ -31,35 +31,39 @@ if defined EXPECTED_SOURCE_SHA (
 )
 if errorlevel 1 goto :failed
 
-echo [1/8] Exact Git source identity: self-test
+echo [1/9] Exact Git source identity: self-test
 %PY_RUN% -m unittest discover -s tests -p "test_exact_branch_qa.py" -v
 if errorlevel 1 goto :failed
 
-echo [2/8] Isolated CAD worker: PNG parity, cancel, reuse, close
+echo [2/9] Isolated CAD worker: PNG parity, cancel, reuse, close
 %PY_RUN% -m unittest discover -s tests -p "test_cad_worker_process.py" -v
 if errorlevel 1 goto :failed
 
-echo [3/8] DXF IPC response teardown race during OnMap switch
+echo [3/9] DXF IPC response teardown race during OnMap switch
 %PY_RUN% -m unittest discover -s tests -p "test_cad_ipc_close_race_stage6.py" -v
 if errorlevel 1 goto :failed
 
-echo [4/8] Catalog registration and batch MuPDF gate
+echo [4/9] Catalog registration and batch MuPDF gate
 %PY_RUN% -m unittest discover -s tests -p "test_p0_catalog_batch_gate.py" -v
 if errorlevel 1 goto :failed
 
-echo [5/8] Catalog registration ownership and remove/re-add race
+echo [5/9] Catalog registration ownership and remove/re-add race
 %PY_RUN% -m unittest discover -s tests -p "test_catalog_generation_semantics.py" -v
 if errorlevel 1 goto :failed
 
-echo [6/8] DXF worker source revision and crash recovery
+echo [6/9] DXF worker source revision and crash recovery
 %PY_RUN% -m unittest discover -s tests -p "test_worker_source_identity.py" -v
 if errorlevel 1 goto :failed
 
-echo [7/8] HiDPI and light-dark theme asset contracts
+echo [7/9] HiDPI and light-dark theme asset contracts
 %PY_RUN% -m unittest discover -s tests -p "test_hidpi_theme_icons_regression.py" -v
 if errorlevel 1 goto :failed
 
-echo [8/8] Real DXF / OnMap QA, only when both input paths are given
+echo [8/9] Stage8 SVG optical center and theme precedence
+%PY_RUN% -m unittest discover -s tests -p "test_ui_optical_alignment_stage8.py" -v
+if errorlevel 1 goto :failed
+
+echo [9/9] Real DXF / OnMap QA, only when both input paths are given
 if "%~1"=="" (
     echo [NOT RUN] No real DXF/PDF paths were supplied.
     goto :optional_full
