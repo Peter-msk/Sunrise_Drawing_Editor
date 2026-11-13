@@ -1,0 +1,99 @@
+diff --git a/drawing_editor/window.py b/drawing_editor/window.py
+--- a/drawing_editor/window.py
++++ b/drawing_editor/window.py
+@@ -21,6 +21,7 @@
+                    render_snapshot, preview_snapshot, export_snapshot)
+ from .batch import LayerRule, LayerRuleStore, apply_rule, plan_exports, run_batch_exports
+ from .icons import icon_file
++from .cad_worker import should_isolate_cad, render_isolated, shutdown_all_workers
+ from .state import DrawingState
+ from .cad_catalog import read_ascii_dxf_layers
+ from .ui_design import THEMES, panel_layout
+@@ -278,9 +279,17 @@
+         self.clip=clip
+         self.cancel_event=cancel_event
+         self.jobs=tuple(jobs or ())
++        self._isolated_cad=False
+         self.signals=Signals()
+ 
+     def run(self):
++        # A large DXF runs in its own process: no GUI-process MuPDF gate.
++        # Its native renderer can be terminated when the user selects OnMap.
++        self._isolated_cad = (self.mode in ('preview', 'detail')
++                              and should_isolate_cad(self.path))
++        if self._isolated_cad:
++            self._run_guarded()
++            return
+         if self.mode == 'batch_export':
+             # Allow preview/catalog tasks to acquire MuPDF between file exports.
+             self._run_guarded()
+@@ -301,12 +310,23 @@
+             if self.cancel_event is not None and self.cancel_event.is_set():
+                 raise RenderCancelled('미리보기 중단됨')
+             if self.mode=='preview':
++                if self._isolated_cad:
++                    value=render_isolated('preview',self.path,self.states,self.page,
++                                          self.preview_size,
++                                          cancelled=self.cancel_event.is_set if self.cancel_event else None)
++                else:
++                    value=preview_snapshot(self.path,self.states,self.page,self.preview_size,
++                                           cancelled=self.cancel_event.is_set if self.cancel_event else None)
+-                value=preview_snapshot(self.path,self.states,self.page,self.preview_size,
+-                                       cancelled=self.cancel_event.is_set if self.cancel_event else None)
+             elif self.mode=='detail':
++                if self._isolated_cad:
++                    pixels=render_isolated('detail',self.path,self.states,self.page,
++                                            self.preview_size,clip=self.clip,
++                                            cancelled=self.cancel_event.is_set if self.cancel_event else None)
++                    value=(pixels,self.clip)
++                else:
++                    value=(render_snapshot(self.path,self.states,self.page,self.preview_size,
++                                           clip=self.clip,
++                                           cancelled=self.cancel_event.is_set if self.cancel_event else None),self.clip)
+-                value=(render_snapshot(self.path,self.states,self.page,self.preview_size,
+-                                       clip=self.clip,
+-                                       cancelled=self.cancel_event.is_set if self.cancel_event else None),self.clip)
+             elif self.mode=='batch_export':
+                 last_update=[0.0]
+                 def progress(index,total,fraction,name):
+@@ -1983,6 +2003,7 @@
+             # Python/Qt cannot kill an arbitrary blocked native QThread safely.
+             # This explicit, user-confirmed emergency exit prevents a permanent
+             # unclosable window. Never use for normal shutdown.
++            shutdown_all_workers()
+             os._exit(0)
+         # Continue waiting quietly. A second close click offers this choice
+         # again; the watchdog never opens repeated modal dialogs by itself.
+@@ -2009,5 +2030,6 @@
+             event.ignore()
+             return
+         self.task_watchdog.stop()
++        shutdown_all_workers()
+         for doc in self.documents.values():doc.close()
+         super().closeEvent(event)
+diff --git a/main.py b/main.py
+--- a/main.py
++++ b/main.py
+@@ -1,12 +1,19 @@
+ from __future__ import annotations
+ import sys
+-from PySide6.QtWidgets import QApplication
+-from PySide6.QtGui import QIcon
+ from pathlib import Path
+-from drawing_editor.window import DrawingWindow
+ 
+ 
+ def main():
++    # Frozen onefile worker must bypass QApplication / QWidget construction.
++    # The child retains its own MuPDF/ezdxf state and can be terminated safely.
++    if len(sys.argv) > 1 and sys.argv[1] == '--cad-worker':
++        from drawing_editor.cad_worker import worker_main
++        return worker_main(sys.argv[2:])
++
++    from PySide6.QtWidgets import QApplication
++    from PySide6.QtGui import QIcon
++    from drawing_editor.window import DrawingWindow
++
+     # Deterministic onefile smoke gate: initialize the packaged Qt / image/CAD
+     # dependencies without starting the GUI event loop or contacting a server.
+     if '--self-test' in sys.argv:
