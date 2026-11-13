@@ -1,0 +1,267 @@
+diff --git a/drawing_editor/core.py b/drawing_editor/core.py
+--- a/drawing_editor/core.py
++++ b/drawing_editor/core.py
+@@ -32,6 +32,43 @@
+     """Preview was superseded or stopped; do not report as a render failure."""
+ 
+ 
++class _CancelableFastCADBackend(FastPyMuPdfBackend):
++    """Cancellation checkpoint during expanded INSERT / CIRCLE / ARC commands.
++
++    The existing ThreePass paint backend still serializes the exact same PDF
++    operations. We only check the request's Event every 128 drawing primitives.
++    This backend is used for interactive previews, never for export.
++    """
++
++    def __init__(self, cancelled):
++        super().__init__()
++        self._cancelled_callback = cancelled
++        self._cancel_count = 0
++
++    def _checkpoint(self):
++        self._cancel_count += 1
++        if (self._cancel_count % 128 == 0
++                and self._cancelled_callback is not None
++                and self._cancelled_callback()):
++            raise RenderCancelled('미리보기 중단됨')
++
++    def draw_line(self, *args, **kwargs):
++        self._checkpoint()
++        return super().draw_line(*args, **kwargs)
++
++    def draw_path(self, *args, **kwargs):
++        self._checkpoint()
++        return super().draw_path(*args, **kwargs)
++
++    def draw_filled_polygon(self, *args, **kwargs):
++        self._checkpoint()
++        return super().draw_filled_polygon(*args, **kwargs)
++
++    def draw_image(self, *args, **kwargs):
++        self._checkpoint()
++        return super().draw_image(*args, **kwargs)
++
++
+ # Large images use disk-backed tiles rather than a fixed megapixel cap.
+ VECTOR_EXPORT_DPI = 300  # Vector input has no native raster pixel resolution.
+ # Guard the in-memory display-list cache: it is useful for repeated layer toggles
+@@ -694,13 +731,20 @@
+             # repeating PyMuPDF's generic Shape.finish path for every line.
+             # Only staged large DXFs take this path; unsupported strokes fall
+             # back to the stock renderer automatically.
++            if self._cad_selective is not None:
++                backend = (_CancelableFastCADBackend(self._preview_cancelled)
++                           if self._preview_cancelled is not None
++                           else FastPyMuPdfBackend())
++            else:
++                backend = pymupdf.PyMuPdfBackend()
+-            backend = (FastPyMuPdfBackend() if self._cad_selective is not None
+-                       else pymupdf.PyMuPdfBackend())
+             configuration = Configuration(background_policy=BackgroundPolicy.OFF,
+                                           color_policy=ColorPolicy.COLOR)
++            self._check_preview_cancel()
+             Frontend(RenderContext(self._cad), backend, config=configuration).draw_layout(
+                 self._cad.modelspace())
++            self._check_preview_cancel()
+             geometry = backend.player().bbox()
++            self._check_preview_cancel()
+             if geometry.has_data:
+                 box = (geometry.extmin.x, geometry.extmin.y,
+                        geometry.extmax.x, geometry.extmax.y)
+@@ -1197,9 +1241,14 @@
+     signature = (normalized, stat.st_size, stat.st_mtime_ns)
+     if getattr(_cache, "signature", None) != signature:
+         previous = getattr(_cache, "document", None)
++        # Invalidate before closing. A failed PDF open must not leave a closed
++        # 400MiB CAD object referenced as this thread's active document.
++        _cache.document = None
++        _cache.signature = None
+         if previous is not None:
+             previous.close()
++        current = DrawingDocument(normalized)
++        _cache.document = current
+-        _cache.document = DrawingDocument(normalized)
+         _cache.signature = signature
+     return _cache.document
+ 
+diff --git a/drawing_editor/window.py b/drawing_editor/window.py
+--- a/drawing_editor/window.py
++++ b/drawing_editor/window.py
+@@ -7,7 +7,7 @@
+ import time
+ 
+ from PySide6.QtCore import Qt, QRunnable, QThreadPool, QTimer, QObject, Signal, QSettings, QRectF, QStandardPaths, QSize, QEvent
++from PySide6.QtGui import QColor, QBrush, QPainter, QPixmap, QIcon, QTransform, QAction, QPalette
+-from PySide6.QtGui import QColor, QBrush, QPainter, QPixmap, QIcon, QTransform, QAction
+ from PySide6.QtWidgets import (
+     QMainWindow, QToolBar, QWidget, QLabel, QFrame, QHBoxLayout, QVBoxLayout,
+     QPushButton, QListWidget, QListWidgetItem, QAbstractItemView, QTreeWidget,
+@@ -1100,6 +1100,23 @@
+         highlight, canvas = palette.selection, palette.canvas
+         primary, primary_hover = palette.primary, palette.primary_hover
+         active_text = palette.active_text
++        # Explicit Qt palette roles are the fallback for native/embedded
++        # controls which do not inherit the stylesheet's color selector.
++        qt_palette = self.palette()
++        for role, value in (
++            (QPalette.ColorRole.Window, bg),
++            (QPalette.ColorRole.WindowText, fg),
++            (QPalette.ColorRole.Base, input_bg),
++            (QPalette.ColorRole.Text, fg),
++            (QPalette.ColorRole.Button, input_bg),
++            (QPalette.ColorRole.ButtonText, fg),
++            (QPalette.ColorRole.PlaceholderText, muted),
++        ):
++            qt_palette.setColor(role, QColor(value))
++        for role in (QPalette.ColorRole.WindowText,
++                     QPalette.ColorRole.Text, QPalette.ColorRole.ButtonText):
++            qt_palette.setColor(QPalette.ColorGroup.Disabled, role, QColor(muted))
++        self.setPalette(qt_palette)
+         self.canvas.setBackgroundBrush(QBrush(QColor(canvas)))
+         self.light_button.setProperty('active', light)
+         self.dark_button.setProperty('active', not light)
+@@ -1109,7 +1126,8 @@
+             QMainWindow,QWidget#drawingRoot,QWidget#workArea,QScrollArea#workAreaScroll {{background:{bg};}}
+             QWidget#drawingRoot,QToolBar#toolbar {{color:{fg};font-family:"Malgun Gothic","Noto Sans CJK KR",sans-serif;font-size:12px;}}
+             QToolBar#toolbar {{background:{panel};border-bottom:1px solid {border};spacing:5px;padding:6px 10px;}}
++            QToolBar#toolbar QToolButton {{padding:7px 9px;border:1px solid transparent;border-radius:6px;color:{fg};}}
++            QToolBar#toolbar QToolButton:disabled {{color:{muted};}}
+-            QToolBar#toolbar QToolButton {{padding:7px 9px;border:1px solid transparent;border-radius:6px;}}
+             QToolBar#toolbar QToolButton:hover {{background:{hover};border-color:{border};}}
+             QLabel#brand {{font-size:10px;color:{muted};font-weight:700;}}
+             QWidget#drawingRoot QPushButton,QWidget#drawingRoot QToolButton,QToolBar#toolbar QPushButton {{
+@@ -1129,7 +1147,7 @@
+             QWidget#drawingRoot QPushButton[uxRole="primary"]:disabled {{background:#80746E;border-color:#80746E;color:#FFFFFF;}}
+             QFrame#filesPane,QFrame#layersPane,QFrame#pane,QGroupBox#exportPanel {{background:{panel};border:1px solid {border};border-radius:8px;}}
+             QGroupBox#exportPanel {{margin-top:11px;font-weight:700;}}
++            QGroupBox#exportPanel::title {{subcontrol-origin:margin;left:12px;padding:0 6px;color:{fg};}}
+-            QGroupBox#exportPanel::title {{subcontrol-origin:margin;left:12px;padding:0 6px;}}
+             QLabel#panelHeader {{font-size:14px;font-weight:700;color:{fg};}}
+             QLabel#panelSubheader {{font-weight:600;color:{fg};}}
+             QLabel#hint {{color:{muted};font-size:11px;}}
+@@ -1139,6 +1157,8 @@
+             QLabel#zoomInfo,QLabel#pageInfo {{color:{fg};font-size:11px;font-weight:600;}}
+             QWidget#drawingRoot QLabel,QWidget#drawingRoot QCheckBox,QWidget#drawingRoot QRadioButton,
+             QWidget#drawingRoot QGroupBox {{color:{fg};}}
++            QWidget#drawingRoot QLabel:disabled,QWidget#drawingRoot QCheckBox:disabled,
++            QWidget#drawingRoot QRadioButton:disabled {{color:{muted};}}
+             QListWidget,QTreeWidget {{background:{input_bg};color:{fg};alternate-background-color:{bg};border:1px solid {border};border-radius:5px;outline:none;selection-background-color:{highlight};selection-color:{fg};}}
+             QListWidget::item,QTreeWidget::item {{color:{fg};}}
+             QListWidget::item:hover,QTreeWidget::item:hover {{background:{hover};color:{fg};}}
+@@ -1153,6 +1173,7 @@
+             QGraphicsView#previewCanvas {{border:1px solid {border};border-radius:5px;}}
+             QWidget#drawingRoot QLineEdit,QWidget#drawingRoot QComboBox,QWidget#drawingRoot QSpinBox {{background:{input_bg};color:{fg};border:1px solid {border};border-radius:5px;padding:5px 7px;min-height:23px;}}
+             QWidget#drawingRoot QComboBox QAbstractItemView {{background:{input_bg};color:{fg};selection-background-color:{highlight};selection-color:{fg};}}
++            QWidget#drawingRoot QComboBox QAbstractItemView::item {{color:{fg};min-height:22px;}}
+             QWidget#drawingRoot QLineEdit:disabled,QWidget#drawingRoot QComboBox:disabled {{color:{muted};background:{bg};}}
+             QScrollBar:vertical {{background:{bg};width:12px;margin:1px;border:0;}}
+             QScrollBar:horizontal {{background:{bg};height:12px;margin:1px;border:0;}}
+@@ -1190,6 +1211,11 @@
+         for button in (self.light_button, self.dark_button):
+             button.style().unpolish(button)
+             button.style().polish(button)
++        # A single physical icon slot keeps SVG glyph/text baselines aligned
++        # across all toolbar/form buttons at 100-175% Windows DPI.
++        for button in self.findChildren(QPushButton):
++            if not button.icon().isNull():
++                button.setIconSize(QSize(18, 18))
+ 
+     def set_theme(self,value):
+         if self._theme!=value:
+@@ -1474,6 +1500,13 @@
+         self.statusBar().showMessage(f'{len(rows)}개 도면을 목록에서 제거했습니다. 원본은 유지됩니다.', 8000)
+ 
+     def _selection_changed(self,current,previous):
++        # Signal cancellation at the very beginning of a file switch. Parsing
++        # hundreds of DXF/OCG layer rows before requesting a preview otherwise
++        # keeps the old 400MiB render alive for the entire UI rebuild.
++        if self._preview_cancel is not None:
++            self._preview_cancel.set()
++        if self._detail_cancel is not None:
++            self._detail_cancel.set()
+         doc=self.current_doc()
+         self.canvas.clear_preview()
+         self._update_zoom_label()
+@@ -1592,7 +1625,10 @@
+         if self._detail_cancel is not None:
+             self._detail_cancel.set()
+         # A changed layer state invalidates an in-flight detail render.
++        if self._preview_busy:
++            self.view_status.setText('이전 도면 렌더 취소 요청 · 선택한 도면 미리보기 대기')
++        else:
++            self.view_status.setText('레이어 변경 대기 · 연속 조작을 모아 미리보기 갱신')
+-        self.view_status.setText('레이어 변경 대기 · 연속 조작을 모아 미리보기 갱신')
+         self.detail_timer.stop()
+         self.canvas.clear_detail()
+         self.preview_timer.start()
+@@ -1889,8 +1925,11 @@
+         # claim success, and always leave cancel/retry/close accessible.
+         if self._preview_busy and self._preview_started:
+             elapsed=int(time.monotonic()-self._preview_started)
++            if elapsed>=12:
++                if self._preview_pending:
++                    self.view_status.setText(
++                        f'이전 대형 도면 처리 {elapsed}초 · 취소 응답 후 최신 온맵 표시')
++                elif self._preview_cancel is not None and self._preview_cancel.is_set():
+-            if elapsed>=12 and not self._preview_pending:
+-                if self._preview_cancel is not None and self._preview_cancel.is_set():
+                     self.view_status.setText(f'중단 요청 후 {elapsed}초 · 네이티브 작업 응답 대기')
+                 else:
+                     self.view_status.setText(
+diff --git a/tests/test_dxf_pdf_switch_theme_20261113.py b/tests/test_dxf_pdf_switch_theme_20261113.py
+--- /dev/null
++++ b/tests/test_dxf_pdf_switch_theme_20261113.py
+@@ -0,0 +1,53 @@
++"""Source-contract regression for responsive file switches and theme parity.
++
++Run with: python -m unittest tests.test_dxf_pdf_switch_theme_20261113
++These contracts do not replace the Windows 402MiB DXF -> OnMap runtime QA.
++"""
++import ast
++from pathlib import Path
++import unittest
++
++ROOT = Path(__file__).resolve().parents[1]
++CORE = (ROOT / 'drawing_editor/core.py').read_text('utf-8')
++WINDOW = (ROOT / 'drawing_editor/window.py').read_text('utf-8')
++
++
++def method(source, owner, method_name):
++    tree = ast.parse(source)
++    obj = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == owner)
++    fn = next(n for n in obj.body if isinstance(n, ast.FunctionDef) and n.name == method_name)
++    return ast.get_source_segment(source, fn)
++
++
++class SwitchContract(unittest.TestCase):
++    def test_old_render_cancelled_before_view_rebuild(self):
++        src = method(WINDOW, 'DrawingWindow', '_selection_changed')
++        self.assertLess(src.index('self._preview_cancel.set()'), src.index('self.layer_list.clear()'))
++
++    def test_cad_fast_backend_has_periodic_cancel_checks(self):
++        cls = next(n for n in ast.parse(CORE).body
++                   if isinstance(n, ast.ClassDef) and n.name == '_CancelableFastCADBackend')
++        names = {n.name for n in cls.body if isinstance(n, ast.FunctionDef)}
++        self.assertTrue({'draw_line','draw_path','draw_image','_checkpoint'} <= names)
++        self.assertIn('128', ast.get_source_segment(CORE, cls))
++        self.assertIn('self._check_preview_cancel()', method(CORE, 'DrawingDocument', '_cad_as_pdf'))
++
++    def test_thread_cache_invalidated_before_switch(self):
++        fn = next(n for n in ast.parse(CORE).body
++                  if isinstance(n, ast.FunctionDef) and n.name == '_thread_document')
++        src = ast.get_source_segment(CORE, fn)
++        self.assertLess(src.index('_cache.document = None'), src.index('previous.close()'))
++
++
++class ThemeContract(unittest.TestCase):
++    def test_palette_and_toolbar_text_are_explicit(self):
++        src = method(WINDOW, 'DrawingWindow', '_apply_theme')
++        self.assertIn('QPalette.ColorRole.ButtonText', src)
++        self.assertIn('QPalette.ColorGroup.Disabled', src)
++        self.assertIn('QToolBar#toolbar QToolButton', src)
++        self.assertIn('color:{fg};', src)
++        self.assertIn('button.setIconSize(QSize(18, 18))', src)
++
++
++if __name__ == '__main__':
++    unittest.main()
