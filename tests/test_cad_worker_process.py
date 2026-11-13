@@ -28,7 +28,7 @@ class IsolatedCADPreviewTest(unittest.TestCase):
         block.add_circle((0, 0), radius=4)
         block.add_arc((5, 5), radius=2, start_angle=0, end_angle=130)
         model = doc.modelspace()
-        model.add_insert("CIRCLE_TEST", (20, 20))
+        model.add_blockref("CIRCLE_TEST", (20, 20))
         model.add_line((0, 0), (50, 20))
         doc.saveas(self.path)
 
