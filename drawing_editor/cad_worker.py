@@ -57,6 +57,7 @@ class _CADSession:
         self._temp = tempfile.TemporaryDirectory(prefix="sunrise-cad-preview-")
         self.folder = Path(self._temp.name)
         self.seq = 0
+        self.source_signature = None
         self.closed = False
         self._close_lock = threading.RLock()
         self._reaper = None
@@ -197,11 +198,26 @@ def render_isolated(mode: str, source: str, states: dict, page_index: int,
     from .core import RenderCancelled
     if cancelled is not None and cancelled():
         raise RenderCancelled("미리보기 중단됨")
+    # Reuse a native CAD worker only for an identical source revision.
+    # A different 400MiB DXF or a file modified at the same pathname must
+    # not inherit decoded CAD/MuPDF state from the previous source.
+    source_path = Path(source).expanduser().resolve()
+    try:
+        source_stat = source_path.stat()
+        source_signature = (str(source_path), source_stat.st_size,
+                            source_stat.st_mtime_ns)
+    except OSError:
+        source_signature = (str(source_path), None, None)
     session = getattr(_THREAD, "session", None)
-    if session is None or session.closed or session.proc.poll() is not None:
-        if session is not None:
-            session.close()
+    if session is not None and (session.closed
+                                or session.proc.poll() is not None
+                                or session.source_signature != source_signature):
+        session.close(background=not session.closed)
+        _THREAD.session = None
+        session = None
+    if session is None:
         session = _CADSession()
+        session.source_signature = source_signature
         _THREAD.session = session
     try:
         return session.render(mode, source, states, page_index, preview_size, clip, cancelled)
