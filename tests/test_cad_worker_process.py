@@ -85,7 +85,7 @@ class IsolatedCADPreviewTest(unittest.TestCase):
         self.assertIsNone(getattr(_THREAD, "session", None))
         image, geometry = render_isolated(
             "preview", str(self.path), states, 0, (500, 400))
-        self.assertTrue(image.startswith(b"\\x89PNG\\r\\n\\x1a\\n"))
+        self.assertTrue(image.startswith(b"\x89PNG\r\n\x1a\n"))
         self.assertEqual(len(geometry), 2)
 
     def test_close_reclaims_worker_session(self):
