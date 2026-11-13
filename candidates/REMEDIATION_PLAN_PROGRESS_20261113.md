@@ -14,10 +14,10 @@
 | 1. 소스 이력·결함 경계 확정 | 10 | 10 | 누적 패치 문맥 및 호출 경로 정적 감사 |
 | 2. P0 렌더 프로세스 격리·취소·종료 | 35 | 25 | 대형 DXF 하위 프로세스 유지·취소·원본 변경 감지, 실물 로컬 확인; Windows·정확한 브랜치 전체 실행 미완료 |
 | 3. 카탈로그·파일/레이어 생명주기 | 20 | 13 | 파일 등록세대 차단, DXF 워커 소유권을 파일 경로·크기·mtime_ns에 종속, 비정상 종료 후 새 워커 복구 |
-| 4. 라이트·다크 테마·아이콘 | 15 | 4 | SVG 40개 존재 및 토큰 대비 정적 점검, 새 7개 시험 작성; Windows 시각 QA NOT RUN |
-| 5. 실물 기능/성능/출력 회귀 | 10 | 3 | 로컬 변경 경계 228/228 PASS, 실물 DXF 하위프로세스 취소·정리 PASS(로컬 재현), Windows NOT RUN |
+| 4. 라이트·다크 테마·아이콘 | 15 | 8 | QSS semantic label 우선순위 보완, 14개 SVG 광학 중심 정렬, Stage8 4개 회귀시험 로컬 PASS; Windows 시각 QA NOT RUN |
+| 5. 실물 기능/성능/출력 회귀 | 10 | 4 | Stage6 기반 Stage8 UI 로컬 패키지 전체 238/238 PASS, ZIP 파일별 SHA/CRC PASS; 최신 GitHub 전체 시험 NOT RUN |
 | 6. Windows Onefile/서명/배포 판정 | 10 | 0 | NOT RUN |
-| **총계** | **100** | **55** | **구현·실행 가능한 로컬 재현검증 기반의 개발 진행률이며 릴리즈 검증 완료율 아님** |
+| **총계** | **100** | **60** | **로컬 UI·엔진 구현 및 검증의 가중 진행률. 최신 GitHub 전체/Windows 릴리즈 관문 미통과** |
 
 ## 현재 통합 후보 적용과 QA
 
@@ -25,7 +25,7 @@
 - P0 등록세대 검사, 파일별 MuPDF gate, 격리 CAD worker, HiDPI와 45개 SVG 자산은 **이미 브랜치 소스에 반영**되었다. 예전 단계 패치를 다시 적용하면 중복·충돌 위험이 있으므로 금지한다.
 - 관련 소스: `drawing_editor/cad_worker.py`, `window.py`, `batch.py`, `ui_interaction.py`, `main.py`.
 - 실행: Windows CMD에서 해당 브랜치의 작업복사본으로 이동하여 `RUN_P0_QA.cmd` 실행. 원본 파일을 이용할 때 DXF와 PDF 경로를 인수로 주어 10회 엔진시험을 추가한다.
-- 신규 대상 시험: 기존 30개 + 이번 소스 동일성/비정상 종료 시험 5개 = **35개 작성**. 정확한 GitHub 브랜치 전체 시험과 Windows GUI는 **NOT RUN**.
+- Stage8 현재 대상 회귀시험은 Source Identity 9, Worker 9, IPC race 1, catalog/batch gate 7, generation 7, worker source identity 5, HiDPI 7, optical UI 4 = **49개 작성**. 최신 GitHub 브랜치 전체 시험과 Windows GUI는 **NOT RUN**.
 - 현재 수정된 소스 및 다른 도면 간 전환에서는 기존 프로세스를 백그라운드 정리하여 네이티브 캐시가 다른 400MiB DXF에 이월되지 않도록 한다.
 - 현재 완료되지 않은 P0 검증: **실제 원본 온맵 PDF**, Windows PySide6 UI, DXF 렌더 중 실제 전환·강제 종료, Onefile/SignTool.
 - 공식 `main`, Google Drive 기준본과 배포 EXE는 수정하지 않았다. **RELEASE HOLD**.
@@ -102,3 +102,13 @@
 - Only source/tool references and test group numbering were inspected in this session. **Python, Windows GUI, real original OnMap PDF, signed Onefile execution NOT RUN** because the current Python/container execution tools failed.
 - QA procedure and pending release gates: `candidates/STAGE7_EXACT_BRANCH_QA_20261113.md`.
 - Official `main`, Drive baseline and published installer remain unchanged; RELEASE HOLD.
+
+
+## Stage8 checkpoint — 2026-11-14, development progress 60% / release HOLD
+
+- On current GitHub work branch: semantic QSS header/hint precedence adjustment, optical center transforms for 7 light/dark SVG icon pairs (14 assets), 4 new `tests/test_ui_optical_alignment_stage8.py` tests, `quality/qa_windows_ui_capture_stage8.py`, and `RUN_P0_QA.cmd` updated to include all 49 targeted tests.
+- Local Stage6-based candidate with those Stage8 UI edits: **238/238 unittest PASS**, optional CairoSVG optical test executed and passed. ZIP per-entry CRC/SHA-256: PASS. This local ZIP is **not byte-identical** to GitHub work branch.
+- Local candidate ZIP SHA-256: `34f8b9c07617e41caf1b1a11f167a1763f263c0a2fab399761b25e0bf3134f65`, size 442,308 bytes; this is a DEVELOPMENT CANDIDATE, not the signed Windows release.
+- Five Google Drive handover artifacts (ZIP, handover, work instructions, dev plan, QA JSON) successfully uploaded and read back from the `5. Sunrise Drawing Editor` folder.
+- User's original OnMap PDF and Windows PySide6 Qt GUI/100-175% DPI/Onefile/SignTool were not available to test. **RELEASE HOLD** and official `main` unchanged.
+- Evidence: `candidates/STAGE8_UI_QA_AND_DRIVE_HANDOVER_20261114.md` and `Sunrise_Drawing_Editor_STAGE8_20261114_QA_RESULT.json` uploaded to Drive.
