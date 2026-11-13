@@ -58,6 +58,8 @@ class _CADSession:
         self.folder = Path(self._temp.name)
         self.seq = 0
         self.closed = False
+        self._close_lock = threading.RLock()
+        self._reaper = None
         cmd, kwargs = _worker_command(self.folder)
         try:
             self.proc = subprocess.Popen(
@@ -69,34 +71,57 @@ class _CADSession:
         with _SESSIONS_LOCK:
             _SESSIONS.add(self)
 
-    def close(self):
-        if self.closed:
-            return
-        self.closed = True
+    def _reap(self):
+        """Wait for termination, escalate to kill, then delete the IPC folder."""
         proc = self.proc
-        if proc.poll() is None:
-            try:
-                proc.terminate()
-                proc.wait(timeout=0.8)
-            except (OSError, subprocess.TimeoutExpired):
-                try:
-                    proc.kill()
-                    proc.wait(timeout=0.8)
-                except (OSError, subprocess.TimeoutExpired):
-                    pass
-        with _SESSIONS_LOCK:
-            _SESSIONS.discard(self)
         try:
-            self._temp.cleanup()
-        except OSError:
-            # A failed system-level termination must never freeze the Qt close
-            # path. The OS will reclaim the worker's private temporary files.
-            pass
+            if proc.poll() is None:
+                try:
+                    proc.wait(timeout=0.8)
+                except subprocess.TimeoutExpired:
+                    try:
+                        proc.kill()
+                        proc.wait(timeout=0.8)
+                    except (OSError, subprocess.TimeoutExpired):
+                        pass
+        finally:
+            try:
+                self._temp.cleanup()
+            except OSError:
+                # Never convert an optional temporary-directory cleanup failure
+                # into a GUI shutdown deadlock.
+                pass
+
+    def close(self, *, background=False):
+        """Signal termination immediately; optionally reap off the GUI thread.
+
+        File selection can call background=True: it must not wait 1.6 seconds
+        while switching away from a 400MiB native CAD renderer. Reaper threads
+        are non-daemon so Python will finish cleanup before the app exits.
+        """
+        with self._close_lock:
+            if self.closed:
+                return
+            self.closed = True
+            proc = self.proc
+            with _SESSIONS_LOCK:
+                _SESSIONS.discard(self)
+            try:
+                if proc.poll() is None:
+                    proc.terminate()
+            except OSError:
+                pass  # the reaper still attempts a bounded kill/wait
+            if background:
+                self._reaper = threading.Thread(
+                    target=self._reap, name="SunriseCADReaper", daemon=False)
+                self._reaper.start()
+                return
+        self._reap()
 
     def render(self, mode, source, states, page_index, preview_size, clip, cancelled):
         from .core import DrawingError, RenderCancelled
         if self.closed:
-            raise DrawingError("CAD 렌더 프로세스가 종료되었습니다.")
+            raise RenderCancelled("미리보기 중단됨")
         if cancelled is not None and cancelled():
             self.close()
             raise RenderCancelled("미리보기 중단됨")
@@ -120,6 +145,8 @@ class _CADSession:
             os.replace(pending_path, request_path)
             deadline = time.monotonic() + RENDER_TIMEOUT_SECONDS
             while True:
+                if self.closed:
+                    raise RenderCancelled("미리보기 중단됨")
                 if cancelled is not None and cancelled():
                     self.close()
                     raise RenderCancelled("미리보기 중단됨")
@@ -177,12 +204,12 @@ def render_isolated(mode: str, source: str, states: dict, page_index: int,
         raise
 
 
-def shutdown_all_workers():
-    """Called on graceful Qt close and before user-approved emergency exit."""
+def shutdown_all_workers(*, background=False):
+    """Release CAD workers; GUI file-switch uses background=True."""
     with _SESSIONS_LOCK:
         pending = tuple(_SESSIONS)
     for session in pending:
-        session.close()
+        session.close(background=background)
 
 
 atexit.register(shutdown_all_workers)
