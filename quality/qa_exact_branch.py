@@ -16,7 +16,15 @@ import sys
 
 REQUIRED_BRANCH = "work/p0-render-lifecycle-audit-20261113"
 REQUIRED_REPOSITORY = "peter-msk/sunrise_drawing_editor"
-AUDITED_PATHS = ("drawing_editor", "tests", "assets", "main.py", "RUN_P0_QA.cmd")
+AUDITED_PATHS = ("drawing_editor", "tests", "assets", "quality",
+                 "build", "main.py", "RUN_P0_QA.cmd", "BUILD_ONEFILE.cmd")
+# Output JSON/log files are allowed. New executable test/QA Python source is not.
+UNTRACKED_CODE_PATHS = (
+    "drawing_editor", "tests", "assets", "main.py",
+    "RUN_P0_QA.cmd", "BUILD_ONEFILE.cmd",
+    ":(glob)quality/**/*.py", ":(glob)quality/*.py",
+    ":(glob)build/**/*.py", ":(glob)build/*.py",
+)
 
 
 def _git(root: Path, *args: str) -> str:
@@ -74,7 +82,8 @@ def check_source(root: Path, *, expected_commit: str | None = None,
     dirty = _git(root, "status", "--porcelain", "--untracked-files=no", "--", *AUDITED_PATHS)
     if dirty:
         raise ValueError("Tracked application/test files are modified; QA source is not reproducible")
-    untracked = _git(root, "ls-files", "--others", "--exclude-standard", "--", *AUDITED_PATHS)
+    untracked = _git(root, "ls-files", "--others", "--exclude-standard", "--",
+                     *UNTRACKED_CODE_PATHS)
     if untracked:
         raise ValueError("Untracked application/test files exist; commit or remove before QA")
     tracked = _git(root, "ls-files", "--", *AUDITED_PATHS).splitlines()
