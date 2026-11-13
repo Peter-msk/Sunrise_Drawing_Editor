@@ -84,11 +84,11 @@ class CatalogGenerationContract(unittest.TestCase):
                       'drawing_editor' / 'window.py').read_text('utf-8')
 
     def test_success_requires_latest_registration(self):
-        self.assertIn('expected_path != path or self._catalog_latest.get(path) != seq',
+        self.assertIn('catalog_result_is_current(seq,path,expected_path,self._catalog_latest,self.documents)',
                       self.source)
 
     def test_error_requires_latest_registration(self):
-        self.assertIn('path is None or self._catalog_latest.get(path) != seq',
+        self.assertIn('catalog_result_is_current(seq,path,path,self._catalog_latest,self.documents)',
                       self.source)
 
     def test_removed_registration_cancels_queued_catalog(self):
