@@ -12,12 +12,12 @@
 | 단계 | 배점 | 현재 인정 점수 | 완료 근거 / 미완료 |
 |---|---:|---:|---|
 | 1. 소스 이력·결함 경계 확정 | 10 | 10 | 누적 패치 문맥 및 호출 경로 정적 감사 |
-| 2. P0 렌더 프로세스 격리·취소·종료 | 35 | 20 | 하위 CAD 렌더 워커·GUI 연동 + 온맵 전환 비차단 종료/비동기 reaper 반영; 실물/Windows NOT RUN |
+| 2. P0 렌더 프로세스 격리·취소·종료 | 35 | 22 | 비차단 종료 유지, 실패한 자식 워커 폐기·다음 요청 새 프로세스 복구 코드/시험 작성; 해당 워커 실행 NOT RUN |
 | 3. 카탈로그·파일/레이어 생명주기 | 20 | 6 | 제거·재추가 세대 검사 및 PDF 카탈로그 취소, 일괄 export gate 코드 반영 |
 | 4. 라이트·다크 테마·아이콘 | 15 | 4 | SVG 40개 존재 및 토큰 대비 정적 점검, 새 7개 시험 작성; Windows 시각 QA NOT RUN |
-| 5. 실물 기능/성능/출력 회귀 | 10 | 0 | 7개 worker 시험 및 실물 DXF→PDF QA 도구 작성, 실행 NOT RUN |
+| 5. 실물 기능/성능/출력 회귀 | 10 | 2 | 실물 421MiB DXF + 합성 온맵 PDF 순차 엔진 3회 / 기존 217개 시험 PASS; 최신 워커·GUI NOT RUN |
 | 6. Windows Onefile/서명/배포 판정 | 10 | 0 | NOT RUN |
-| **총계** | **100** | **40** | **구현·정적 검토 진행률, 릴리즈 검증 완료율 아님** |
+| **총계** | **100** | **44** | **구현·정적 검토 진행률, 릴리즈 검증 완료율 아님** |
 
 ## 패치 1: catalog generation + batch MuPDF gate
 - candidates/P0_CATALOG_LIFECYCLE_BATCH_GATE_20261113.patch
@@ -75,3 +75,14 @@
 - Pure JavaScript inspection of theme values found light panel/foreground contrast 10.99:1, light muted/panel 5.00:1, dark foreground/panel 12.91:1 and dark muted/panel 7.89:1; rendered Windows colors/contrast not tested.
 - **Execution status**: container and Python runtime unavailable in this session; new 22 tests, Windows GUI, 421MiB DXF, real OnMap PDF and Onefile/SignTool are all NOT RUN. Do not use progress percentage as QA PASS.
 - Official main, Drive baseline, signed EXE untouched; work only on isolated GitHub branch.
+
+
+## Stage 4 checkpoint — 2026-11-13; 44% development progress
+
+- Container Python runtime became available. Existing `Sunrise_Drawing_Editor_Render_Icon_HiDPI_20261113_SOURCE.zip`: **217/217 unittest PASS** (21.342 seconds). Not a GitHub work-branch PASS.
+- Real user-supplied 421,316,933-byte DXF: quick 290-layer catalog, 2 default ON, ~0.006s. One 640x480 DXF preview 1.705s with peak RSS ~580MiB in that process.
+- Real DXF and existing small **synthetic** OnMap 2-OCG PDF sequential preview 3 cycles (DXF 1.1254 / 1.0456 / 0.9702s; OnMap 0.0172 / 0.0201 / 0.0207s). Per-input raster hashes and source hashes unchanged.
+- Synthetic OnMap OCG OFF→ON 12 cycles baseline; source image restored identically, ~0.0009s per pair.
+- Work-branch P0 change: failed isolated subprocess now always closes and clears its thread-local CAD session. Recovery regression added: missing DXF failure -> valid DXF preview, worker tests now **9 written, NOT RUN**. Total new targeted tests **23 written**, not runtime verified.
+- Field evidence: `candidates/FIELD_DXF_SEQUENTIAL_ENGINE_QA_20261113.md`, local detailed JSON file available separately. Current work branch itself not available as a local runnable ZIP; do not equate the sequential baseline pass with child-process or Windows GUI pass.
+- Windows PySide6 GUI / actual OnMap original PDF / child-process run / Onefile signed build: **NOT RUN**.
