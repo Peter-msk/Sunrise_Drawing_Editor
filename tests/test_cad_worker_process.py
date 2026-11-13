@@ -85,6 +85,18 @@ class IsolatedCADPreviewTest(unittest.TestCase):
         self.assertTrue(session.closed)
         self.assertIsNotNone(session.proc.poll())
 
+    def test_background_close_does_not_block_on_process_wait(self):
+        states = {"0": True}
+        render_isolated("preview", str(self.path), states, 0, (500, 400))
+        session = _THREAD.session
+        shutdown_all_workers(background=True)
+        self.assertTrue(session.closed)
+        self.assertIsNotNone(session._reaper)
+        # Unlike synchronous shutdown, the GUI does not wait for child reaping.
+        session._reaper.join(timeout=5)
+        self.assertFalse(session._reaper.is_alive())
+        self.assertIsNotNone(session.proc.poll())
+
 
 class EntrypointContractTest(unittest.TestCase):
     def test_gui_routes_large_dxf_without_mupdf_gate(self):
@@ -102,7 +114,7 @@ class EntrypointContractTest(unittest.TestCase):
         tail = window.index("    def _layer_changed(", head)
         switch = window[head:tail]
         self.assertIn("if doc is None or not should_isolate_cad(str(doc.path)):", switch)
-        self.assertIn("shutdown_all_workers()", switch)
+        self.assertIn("shutdown_all_workers(background=True)", switch)
 
     def test_frozen_worker_bypasses_qt(self):
         main = (Path(__file__).resolve().parents[1] /
