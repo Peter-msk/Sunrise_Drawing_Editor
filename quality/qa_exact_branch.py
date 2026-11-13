@@ -59,8 +59,14 @@ def check_source(root: Path, *, expected_commit: str | None = None,
     if branch != required_branch:
         raise ValueError(f"Wrong branch: {branch!r}, expected {required_branch!r}")
     remote = _git(root, "remote", "get-url", "origin").rstrip("/").lower()
-    normalized = remote[:-4] if remote.endswith(".git") else remote
-    if not normalized.endswith(required_repository.lower()):
+    allowed_prefixes = ("https://github.com/", "git@github.com:",
+                        "ssh://git@github.com/")
+    suffix = next((remote[len(prefix):] for prefix in allowed_prefixes
+                   if remote.startswith(prefix)), None)
+    if suffix is None:
+        raise ValueError("Origin must be the official github.com repository")
+    normalized = suffix[:-4] if suffix.endswith(".git") else suffix
+    if normalized != required_repository.lower():
         raise ValueError("Origin repository does not match Sunrise Drawing Editor")
     commit = _git(root, "rev-parse", "HEAD")
     if expected_commit and commit != expected_commit:
@@ -68,6 +74,9 @@ def check_source(root: Path, *, expected_commit: str | None = None,
     dirty = _git(root, "status", "--porcelain", "--untracked-files=no", "--", *AUDITED_PATHS)
     if dirty:
         raise ValueError("Tracked application/test files are modified; QA source is not reproducible")
+    untracked = _git(root, "ls-files", "--others", "--exclude-standard", "--", *AUDITED_PATHS)
+    if untracked:
+        raise ValueError("Untracked application/test files exist; commit or remove before QA")
     tracked = _git(root, "ls-files", "--", *AUDITED_PATHS).splitlines()
     if not tracked:
         raise ValueError("No source files found in Git index")
