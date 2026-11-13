@@ -148,7 +148,9 @@ class RecoveryContracts(unittest.TestCase):
             self.assertEqual(before,source.read_bytes())
 
     def test_mupdf_tasks_are_serialized_across_worker_pools(self):
-        self.assertIn('with _MUPDF_GATE:',SOURCE)
+        # MuPDF is serialized with a cancellable gate, not the old with-block.
+        self.assertIn('while not _MUPDF_GATE.acquire(timeout=0.15):',SOURCE)
+        self.assertIn('render_gate=_MUPDF_GATE',SOURCE)
         self.assertIn('_MUPDF_GATE.acquire(timeout=0.15)',SOURCE)
         self.assertIn('_MUPDF_GATE.release()',SOURCE)
         self.assertIn("if kind == '.pdf':", SOURCE)
