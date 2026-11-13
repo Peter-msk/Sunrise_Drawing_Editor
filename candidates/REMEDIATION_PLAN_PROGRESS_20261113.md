@@ -90,3 +90,15 @@
 - `RUN_P0_QA.cmd` updated to include new worker identity tests, 35 authored targeted cases total; Windows tests NOT RUN.
 - WARNING: local source-identity patch is against local Stage5 worker replica and should not be applied directly to the GitHub branch. The current GitHub branch code is authoritative; its worker and test changes were committed separately.
 - Next gates: exact branch full test; real user OnMap PDF; Windows UI file-switch cancellation, DPI 100/125/150/175; Onefile/SignTool QA.
+
+
+## Stage 7 checkpoint — 2026-11-13; exact-branch QA readiness
+
+- **Weighted development progress remains 55/100.** Stage6 local reconstructed source 234/234 PASS does not prove exact GitHub branch or Windows behavior.
+- Added `quality/qa_exact_branch.py` to validate official GitHub origin + required development branch + tracked/untracked application/test/QA source + HEAD Git SHA + aggregate SHA-256 fingerprint.
+- Added 9 tests in `tests/test_exact_branch_qa.py`: clean check, source edit, untracked Python, QA source tampering, generated report allowance, wrong origin, wrong commit and wrong branch.
+- `RUN_P0_QA.cmd` now invokes source identity before and after the suite, explicitly includes the deterministic Stage6 DXF IPC switch race, and targets 45 written regression cases across 7 test groups.
+- A QA run without the Git checkout fails deliberately; it must not pass by testing a reconstructed ZIP while claiming latest GitHub source.
+- Only source/tool references and test group numbering were inspected in this session. **Python, Windows GUI, real original OnMap PDF, signed Onefile execution NOT RUN** because the current Python/container execution tools failed.
+- QA procedure and pending release gates: `candidates/STAGE7_EXACT_BRANCH_QA_20261113.md`.
+- Official `main`, Drive baseline and published installer remain unchanged; RELEASE HOLD.
