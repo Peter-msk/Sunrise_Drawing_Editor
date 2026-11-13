@@ -12,12 +12,12 @@
 | 단계 | 배점 | 현재 인정 점수 | 완료 근거 / 미완료 |
 |---|---:|---:|---|
 | 1. 소스 이력·결함 경계 확정 | 10 | 10 | 누적 패치 문맥 및 호출 경로 정적 감사 |
-| 2. P0 렌더 프로세스 격리·취소·종료 | 35 | 4 | 일괄 export gate 독점 방지 패치 작성, 실 DXF 격리 NOT RUN |
-| 3. 카탈로그·파일/레이어 생명주기 | 20 | 4 | 제거·재추가 세대 구별 및 대기 카탈로그 취소 패치 작성 |
-| 4. 라이트·다크 테마·아이콘 | 15 | 0 | 실제 Qt 배율 100/125/150/175% 미측정 |
-| 5. 실물 기능/성능/출력 회귀 | 10 | 0 | 실 421MiB DXF, 온맵 원본, RSS/픽셀 NOT RUN |
+| 2. P0 렌더 프로세스 격리·취소·종료 | 35 | 15 | 별도 CAD worker + GUI/Onefile 경로 + 유휴 메모리 해제 구현; Windows 실물 NOT RUN |
+| 3. 카탈로그·파일/레이어 생명주기 | 20 | 6 | 제거·재추가 세대 검사 및 PDF 카탈로그 취소, 일괄 export gate 코드 반영 |
+| 4. 라이트·다크 테마·아이콘 | 15 | 2 | 45개 SVG(40개 신규) 복원, Windows 배율·대비 실측 NOT RUN |
+| 5. 실물 기능/성능/출력 회귀 | 10 | 0 | 7개 worker 시험 및 실물 DXF→PDF QA 도구 작성, 실행 NOT RUN |
 | 6. Windows Onefile/서명/배포 판정 | 10 | 0 | NOT RUN |
-| **총계** | **100** | **18** | **구현·정적 검토 진행률, 릴리즈 검증 완료율 아님** |
+| **총계** | **100** | **33** | **구현·정적 검토 진행률, 릴리즈 검증 완료율 아님** |
 
 ## 패치 1: catalog generation + batch MuPDF gate
 - candidates/P0_CATALOG_LIFECYCLE_BATCH_GATE_20261113.patch
@@ -49,3 +49,15 @@
 ## 배포
 - GitHub main, Drive 기준본, 배포 EXE 변경 금지.
 - 새 코드 조각은 직접 실행해 PASS한 것이 아니라 기존 소스를 분석하여 작성한 **격리 후보**임을 유지.
+
+
+## Stage 2 implementation checkpoint — 2026-11-13
+
+- Work branch now contains ACTUAL cumulative source files (not only detached patches): `drawing_editor/core.py`, `window.py`, `cad_selective.py`, `trim.py`, `batch.py`, `icons.py`, `ui_interaction.py` and `main.py`.
+- New module: `drawing_editor/cad_worker.py`; 64MiB+ DXF preview/detail runs in a persistent child process instead of holding the main application's MuPDF gate.
+- Switching to OnMap/small drawing releases even an idle CAD worker. A cancelled render kills its child process, avoiding a native worker blocking subsequent PDF previews.
+- 45 HiDPI SVG assets and 12 uncorrupted historical test/quality files have been included. A malformed historical HiDPI test patch was excluded deliberately.
+- 7 new worker integration/regression tests: `tests/test_cad_worker_process.py`. Headless real-DXF/OnMap script: `quality/qa_dxf_onmap_handoff.py`.
+- Work was verified via source patch context/hunk counts and GitHub branch file fetch. **Python execution, 421MiB field DXF, Windows runtime, DPI, signed Onefile: NOT RUN**.
+- QA reference: `candidates/P0_PROCESS_ISOLATION_QA_20261113.md`.
+- No official main/Drive deployment. Previously generated hash manifest is historical and not an attestation for this branch.
