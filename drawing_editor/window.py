@@ -1186,6 +1186,10 @@ class DrawingWindow(QMainWindow):
             QFrame#filesPane,QFrame#layersPane,QFrame#pane,QGroupBox#exportPanel {{background:{panel};border:1px solid {border};border-radius:8px;}}
             QGroupBox#exportPanel {{margin-top:11px;font-weight:700;}}
             QGroupBox#exportPanel::title {{subcontrol-origin:margin;left:12px;padding:0 6px;color:{fg};}}
+            QWidget#drawingRoot QLabel,QWidget#drawingRoot QCheckBox,QWidget#drawingRoot QRadioButton,
+            QWidget#drawingRoot QGroupBox {{color:{fg};}}
+            QWidget#drawingRoot QLabel:disabled,QWidget#drawingRoot QCheckBox:disabled,
+            QWidget#drawingRoot QRadioButton:disabled {{color:{muted};}}
             QLabel#panelHeader {{font-size:14px;font-weight:700;color:{fg};}}
             QLabel#panelSubheader {{font-weight:600;color:{fg};}}
             QLabel#hint {{color:{muted};font-size:11px;}}
@@ -1193,10 +1197,6 @@ class DrawingWindow(QMainWindow):
             QLabel#canvasEmpty {{color:{muted};font-size:13px;}}
             QLabel#exportTarget {{color:{muted};font-size:11px;}}
             QLabel#zoomInfo,QLabel#pageInfo {{color:{fg};font-size:11px;font-weight:600;}}
-            QWidget#drawingRoot QLabel,QWidget#drawingRoot QCheckBox,QWidget#drawingRoot QRadioButton,
-            QWidget#drawingRoot QGroupBox {{color:{fg};}}
-            QWidget#drawingRoot QLabel:disabled,QWidget#drawingRoot QCheckBox:disabled,
-            QWidget#drawingRoot QRadioButton:disabled {{color:{muted};}}
             QListWidget,QTreeWidget {{background:{input_bg};color:{fg};alternate-background-color:{bg};border:1px solid {border};border-radius:5px;outline:none;selection-background-color:{highlight};selection-color:{fg};}}
             QListWidget::item,QTreeWidget::item {{color:{fg};}}
             QListWidget::item:hover,QTreeWidget::item:hover {{background:{hover};color:{fg};}}
