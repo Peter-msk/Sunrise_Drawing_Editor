@@ -27,7 +27,8 @@ from .cad_catalog import read_ascii_dxf_layers
 from .ui_design import THEMES, panel_layout
 from .ui_interaction import (matching_editable_layers, file_add_status,
                              zoom_factor_for_delta, clamp_zoom_factor,
-                             preview_raster_size, detail_tile_covers)
+                             preview_raster_size, detail_tile_covers,
+                             catalog_result_is_current)
 
 ASSETS = Path(__file__).resolve().parent.parent / 'assets'
 # PyMuPDF's native cache is process-global. Concurrent PDF raster/metadata
@@ -1867,7 +1868,7 @@ class DrawingWindow(QMainWindow):
         if mode=='catalog':
             expected_path = self._catalog_paths.pop(seq, None)
             path, layers, pages = result
-            if expected_path != path or self._catalog_latest.get(path) != seq:
+            if not catalog_result_is_current(seq,path,expected_path,self._catalog_latest,self.documents):
                 return
             self._catalog_latest.pop(path, None)
             self._catalog_cancellations.pop(path, None)
@@ -1932,7 +1933,7 @@ class DrawingWindow(QMainWindow):
             return
         if mode=='catalog':
             path = self._catalog_paths.pop(seq, None)
-            if path is None or self._catalog_latest.get(path) != seq:
+            if not catalog_result_is_current(seq,path,path,self._catalog_latest,self.documents):
                 return
             self._catalog_latest.pop(path, None)
             self._catalog_cancellations.pop(path, None)
