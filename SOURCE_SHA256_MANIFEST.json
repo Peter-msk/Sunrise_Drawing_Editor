@@ -158,5 +158,8 @@
     "tests/test_ui_mcp_guidelines.py": "6b04b5a5ee6a62c4b2dbcee3620d80e65d0005241f42f22a4f0e3da761ad1e18",
     "tests/test_ui_qt_mcp_workflows.py": "c1b8aaf38edb0bfb4bc473ac72d4875a647132eae24944980d472bfec64fd51f",
     "tests/test_ui_render_feedback.py": "ee848cc8e834ea1f39118796adcab9f5fac864ad8c4c6e5e81b6d642690749ef"
-  }
+  },
+  "status": "HISTORICAL_PRE_STAGE12_ONLY",
+  "current_source_validation": "SOURCE_ARCHIVE_BLOBS.json",
+  "notice": "This preserved SHA-256 mapping belongs to an older source baseline and must never be used to attest STAGE12_SOURCE. Use the complete Git blob manifest or strict Git checkout check."
 }
