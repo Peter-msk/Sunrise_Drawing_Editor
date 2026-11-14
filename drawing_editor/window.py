@@ -9,7 +9,7 @@ import time
 from PySide6.QtCore import Qt, QRunnable, QThreadPool, QTimer, QObject, Signal, QSettings, QRectF, QStandardPaths, QSize, QEvent
 from PySide6.QtGui import QColor, QBrush, QPainter, QPixmap, QIcon, QTransform, QAction, QPalette
 from PySide6.QtWidgets import (
-    QMainWindow, QToolBar, QWidget, QLabel, QFrame, QHBoxLayout, QVBoxLayout,
+    QMainWindow, QToolBar, QWidget, QLabel, QFrame, QHBoxLayout, QVBoxLayout, QBoxLayout,
     QPushButton, QListWidget, QListWidgetItem, QAbstractItemView, QTreeWidget,
     QTreeWidgetItem, QGraphicsScene, QGraphicsView, QGraphicsPixmapItem,
     QFileDialog, QMessageBox, QComboBox, QGroupBox, QSizePolicy, QLineEdit,
@@ -574,7 +574,7 @@ class DrawingWindow(QMainWindow):
         # Shortcuts operate on the same buttons; don't add duplicate toolbar UI.
         self._shortcuts = []
         for shortcut, callback in (
-            ('Ctrl+S', self.export_selected),
+            ('Ctrl+S', self._export_shortcut),
             ('Ctrl+F', self.focus_layer_search),
             ('Ctrl+0', self.canvas_fit),
             ('Ctrl+PgUp', lambda:self.change_page(-1)),
@@ -784,8 +784,16 @@ class DrawingWindow(QMainWindow):
         self.view_info = ElidedLabel('도면을 추가해 주세요')
         self.view_info.setObjectName('panelSubheader')
         preview_layout.addWidget(self.view_info)
-        preview_controls = QHBoxLayout()
+        # Two native Qt groups stay in one row on normal screens. At narrow
+        # logical widths they stack without hiding page/zoom commands or
+        # forcing the preview pane wider than the viewport.
+        preview_controls = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self.preview_controls_layout = preview_controls
         preview_controls.setSpacing(5)
+        page_controls = QHBoxLayout()
+        page_controls.setSpacing(5)
+        zoom_controls = QHBoxLayout()
+        zoom_controls.setSpacing(5)
         self.page_prev_button = QToolButton()
         self.page_prev_button.setObjectName('previousPageButton')
         self.page_prev_button.setProperty('uxRole', 'viewButton')
@@ -793,12 +801,12 @@ class DrawingWindow(QMainWindow):
         self.page_prev_button.setToolTip('이전 페이지 (Ctrl+PgUp)')
         self.page_prev_button.setAccessibleName('이전 페이지')
         self.page_prev_button.clicked.connect(lambda:self.change_page(-1))
-        preview_controls.addWidget(self.page_prev_button)
+        page_controls.addWidget(self.page_prev_button)
         self.page_info = QLabel('0 / 0')
         self.page_info.setObjectName('pageInfo')
         self.page_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.page_info.setMinimumWidth(54)
-        preview_controls.addWidget(self.page_info)
+        page_controls.addWidget(self.page_info)
         self.page_next_button = QToolButton()
         self.page_next_button.setObjectName('nextPageButton')
         self.page_next_button.setProperty('uxRole', 'viewButton')
@@ -806,8 +814,8 @@ class DrawingWindow(QMainWindow):
         self.page_next_button.setToolTip('다음 페이지 (Ctrl+PgDown)')
         self.page_next_button.setAccessibleName('다음 페이지')
         self.page_next_button.clicked.connect(lambda:self.change_page(1))
-        preview_controls.addWidget(self.page_next_button)
-        preview_controls.addStretch(1)
+        page_controls.addWidget(self.page_next_button)
+        page_controls.addStretch(1)
         self.zoom_out_button = QToolButton()
         self.zoom_out_button.setObjectName('zoomOutButton')
         self.zoom_out_button.setProperty('uxRole', 'viewButton')
@@ -817,12 +825,12 @@ class DrawingWindow(QMainWindow):
         self.zoom_out_button.clicked.connect(lambda:self.canvas.zoom(1/1.16))
         self.zoom_out_button.setIconSize(QSize(18, 18))
         self.zoom_out_button.setMinimumWidth(34)
-        preview_controls.addWidget(self.zoom_out_button)
+        zoom_controls.addWidget(self.zoom_out_button)
         self.zoom_label = QLabel('맞춤')
         self.zoom_label.setObjectName('zoomInfo')
         self.zoom_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.zoom_label.setMinimumWidth(64)
-        preview_controls.addWidget(self.zoom_label)
+        zoom_controls.addWidget(self.zoom_label)
         self.zoom_in_button = QToolButton()
         self.zoom_in_button.setObjectName('zoomInButton')
         self.zoom_in_button.setProperty('uxRole', 'viewButton')
@@ -832,7 +840,7 @@ class DrawingWindow(QMainWindow):
         self.zoom_in_button.clicked.connect(lambda:self.canvas.zoom(1.16))
         self.zoom_in_button.setIconSize(QSize(18, 18))
         self.zoom_in_button.setMinimumWidth(34)
-        preview_controls.addWidget(self.zoom_in_button)
+        zoom_controls.addWidget(self.zoom_in_button)
         self.fit_button = QPushButton('맞춤')
         self.fit_button.setObjectName('fitPreviewButton')
         self.fit_button.setProperty('uxRole', 'viewButton')
@@ -841,7 +849,9 @@ class DrawingWindow(QMainWindow):
         self.fit_button.setAccessibleName('화면에 전체 도면 맞춤')
         self.fit_button.clicked.connect(self.canvas_fit)
         self.fit_button.setIconSize(QSize(17, 17))
-        preview_controls.addWidget(self.fit_button)
+        zoom_controls.addWidget(self.fit_button)
+        preview_controls.addLayout(page_controls, 1)
+        preview_controls.addLayout(zoom_controls)
         preview_layout.addLayout(preview_controls)
         self.canvas = ImageCanvas()
         self.canvas.setObjectName('previewCanvas')
@@ -1004,6 +1014,7 @@ class DrawingWindow(QMainWindow):
         self.export_button.setAccessibleName('선택한 도면 이미지 추출')
         self.export_button.clicked.connect(self.export_selected)
         self.export_button.setToolTip('왼쪽에서 선택한 도면을 현재 해상도로 PNG/JPG 추출 (Ctrl+S)')
+        self.export_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         destination.addWidget(self.export_button)
         export_layout.addLayout(destination)
         root.addWidget(footer)
@@ -1016,6 +1027,7 @@ class DrawingWindow(QMainWindow):
         # screen readers instead of relying on the tiny colored bar alone.
         self.progress.setAccessibleName('이미지 추출 진행률')
         self.progress.setAccessibleDescription('선택한 도면의 이미지 추출 진행 정도를 백분율로 표시합니다.')
+        self.progress.setToolTip('일괄 이미지 추출 진행률')
         self.progress.hide()
         root.addWidget(self.progress)
         self.setCentralWidget(root_widget)
@@ -1068,6 +1080,16 @@ class DrawingWindow(QMainWindow):
         self.layer_on_button.setText('켜기' if narrow else '전체 켜기')
         self.layer_off_button.setText('끄기' if narrow else '전체 끄기')
         self.apply_rule_button.setText('적용' if narrow else '선택 적용')
+        # Keep BOTH page and zoom tools reachable at 760-900 logical px.
+        # Layout direction changes only at the breakpoint; never rebuild
+        # controls or signals, so a theme/resize preserves focus and state.
+        self.preview_controls_layout.setDirection(
+            QBoxLayout.Direction.TopToBottom if narrow
+            else QBoxLayout.Direction.LeftToRight)
+        self.zoom_label.setMinimumWidth(42 if narrow else 64)
+        self.page_info.setMinimumWidth(42 if narrow else 54)
+        self.fit_button.setText('' if narrow else '맞춤')
+        self.fit_button.setMinimumWidth(34)
 
     def _configure_tab_order(self):
         order = (self.file_list, self.select_all_button, self.clear_selection_button,
@@ -1229,6 +1251,8 @@ class DrawingWindow(QMainWindow):
             QToolBar#toolbar QToolButton:disabled {{color:{muted};background:{bg};border-color:{border};}}
             QToolBar#toolbar QToolButton:hover {{background:{hover};border-color:{primary};}}
             QToolBar#toolbar QToolButton:pressed {{background:{highlight};border-color:{primary};}}
+            QToolBar#toolbar QToolButton:focus {{border:2px solid {primary};
+                padding:6px 9px;}}
             QLabel#brand {{font-size:10px;color:{muted};font-weight:700;}}
             QWidget#drawingRoot QPushButton,QWidget#drawingRoot QToolButton,QToolBar#toolbar QPushButton {{
                 background:{input_bg};border:1px solid {border};border-radius:6px;padding:6px 9px;min-height:23px;color:{fg};
@@ -1866,6 +1890,12 @@ class DrawingWindow(QMainWindow):
     def export_current(self):
         # Keep the old public entry point for callers; selection drives batch intent.
         self.export_selected()
+
+    def _export_shortcut(self):
+        # Ctrl+S is an export shortcut, never a hidden cancellation shortcut.
+        # During an active batch, the visible Cancel button alone owns cancel.
+        if not self._export_busy:
+            self.export_selected()
 
     def export_selected(self):
         if self._export_busy:
