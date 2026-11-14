@@ -19,7 +19,7 @@ if not defined PY_RUN (echo [FAIL] Requires Windows Python x64 3.11+.& goto :fai
 
 echo [1/5] Confirm source identity without enabling GitHub Actions
 if exist ".git" (
-    %PY_RUN% "quality\qa_exact_branch.py" --required-branch "STAGE12_SOURCE"
+    %PY_RUN% "quality\qa_exact_branch.py" --required-branch "STAGE13_SOURCE"
 ) else (
     %PY_RUN% "quality\qa_source_archive.py"
 )
@@ -39,7 +39,7 @@ if errorlevel 1 goto :failed
 
 echo [5/5] Recheck unchanged source bytes after targeted tests
 if exist ".git" (
-    %PY_RUN% "quality\qa_exact_branch.py" --required-branch "STAGE12_SOURCE"
+    %PY_RUN% "quality\qa_exact_branch.py" --required-branch "STAGE13_SOURCE"
 ) else (
     %PY_RUN% "quality\qa_source_archive.py"
 )
