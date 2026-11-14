@@ -47,6 +47,8 @@ def run_batch_exports_isolated(jobs, options, *, progress=None, cancelled=None):
     GUI-process MuPDF calls. Existing per-file export safety stays in batch.py.
     """
     options = options.checked()
+    if cancelled is not None and cancelled():
+        return BatchResult((), (), True)
     with tempfile.TemporaryDirectory(prefix="sunrise-export-") as folder_name:
         folder = Path(folder_name)
         _atomic_json(folder / "request.json", {
