@@ -40,7 +40,7 @@ class FourthPassDisplayListGates(unittest.TestCase):
         obj._preview_display_key = None
         obj._preview_display_list = None
         obj._preview_display_failed_key = None
-        obj._experimental_large_cad_displaylist = False
+        obj._experimental_large_cad_displaylist = True
 
     def _request(self, rectangle=(0, 0, 200, 160)):
         return self.drawing._get_preview_display_list(self.page, None, rectangle)
@@ -53,7 +53,6 @@ class FourthPassDisplayListGates(unittest.TestCase):
         self.assertIsNone(self.drawing._preview_display_list)
 
     def test_large_source_default_enabled_is_lazy_and_exact(self):
-        self.drawing._experimental_large_cad_displaylist = True
         with patch.object(Path, 'stat', return_value=SimpleNamespace(st_size=421_316_933)):
             self.assertIsNone(self._request())
             dl = self._request((4, 4, 205, 161))
