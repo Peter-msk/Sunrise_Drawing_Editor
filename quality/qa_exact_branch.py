@@ -14,7 +14,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-REQUIRED_BRANCH = "audit/stage12-source-identity-engine-20261114"
+REQUIRED_BRANCH = "STAGE12_SOURCE"
 REQUIRED_REPOSITORY = "peter-msk/sunrise_drawing_editor"
 AUDITED_PATHS = ("drawing_editor", "tests", "assets", "quality",
                  "build", "main.py", "RUN_P0_QA.cmd", "BUILD_ONEFILE.cmd")
