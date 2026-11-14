@@ -983,6 +983,10 @@ class DrawingWindow(QMainWindow):
         self.progress.setValue(0)
         self.progress.setFixedHeight(6)
         self.progress.setTextVisible(False)
+        # The 6px visual meter has no text: expose its actual meaning to
+        # screen readers instead of relying on the tiny colored bar alone.
+        self.progress.setAccessibleName('이미지 추출 진행률')
+        self.progress.setAccessibleDescription('선택한 도면의 이미지 추출 진행 정도를 백분율로 표시합니다.')
         self.progress.hide()
         root.addWidget(self.progress)
         self.setCentralWidget(root_widget)
@@ -991,6 +995,29 @@ class DrawingWindow(QMainWindow):
                         self.layer_off_button, self.save_rule_button,
                         self.apply_rule_button, self.delete_rule_button):
             control.setIconSize(QSize(16, 16))
+        # Native Qt accessibility names remain explicit when responsive
+        # breakpoints shorten visible button captions (e.g. '전체' / '끄기').
+        # No web UI library or engine dependency is introduced.
+        for control, name, explanation in (
+            (self.select_all_button, '도면 목록 전체 선택',
+             '왼쪽 목록의 모든 도면을 일괄 작업 대상으로 선택합니다.'),
+            (self.clear_selection_button, '도면 선택 모두 해제',
+             '일괄 작업 대상 선택을 해제하며 원본 파일은 유지합니다.'),
+            (self.layer_on_button, '현재 도면 전체 레이어 켜기',
+             '검색 조건과 관계없이 변경 가능한 전체 레이어를 켭니다.'),
+            (self.layer_off_button, '현재 도면 전체 레이어 끄기',
+             '검색 조건과 관계없이 변경 가능한 전체 레이어를 끕니다.'),
+            (self.rule_selector, '저장된 레이어 규칙 선택',
+             '현재 도면에 적용할 저장 규칙을 선택합니다.'),
+            (self.save_rule_button, '현재 레이어 규칙 저장',
+             '현재 레이어의 표시 상태를 이름 있는 규칙으로 저장합니다.'),
+            (self.apply_rule_button, '선택 도면에 레이어 규칙 적용',
+             '저장된 규칙을 목록에서 선택한 도면들에 적용합니다.'),
+            (self.delete_rule_button, '선택한 레이어 규칙 삭제',
+             '저장된 규칙을 삭제하며 원본 도면은 변경하지 않습니다.'),
+        ):
+            control.setAccessibleName(name)
+            control.setAccessibleDescription(explanation)
         self._apply_responsive_layout(self.width())
         self._configure_tab_order()
         self._sync_actions()
