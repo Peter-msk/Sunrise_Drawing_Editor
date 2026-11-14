@@ -161,3 +161,12 @@
 - 회귀 파일: `tests/test_batch_responsiveness_stage11.py` (15개 합성 PDF, OCG, PNG 스트라이프 바이트 동등, 취소/경로 및 UI 정적 계약).
 - Windows 사용자의 **15장 실물 OnMap**, PySide6 양 테마 100~175%DPI GUI, Onefile EXE, 신규 병목/응답성 실기 = **NOT RUN**. 소스 정적 감사만으로 실제 문제 해결 PASS를 주장하지 않음.
 - GitHub Actions 실행/생성/활성화 금지. `main` 및 공식 배포 변경 없음.
+
+## Stage 12 — 렌더링 엔진 사실확인, 소스 검증 기준 및 대형 PNG 안전 감사
+
+- 코드 확인: `drawing_editor/core.py`의 `import ezdxf, fitz` 및 `FastPyMuPdfBackend`, `requirements.txt`의 `PyMuPDF>=1.24,<2`, `ezdxf>=1.3,<2` 확인. **엔진 전면 교체 흔적 없음**. 기존 자체 고속 백엔드·선택적 DXF·DisplayList가 기존 엔진 위에서 작동.
+- P1 수정: `quality/qa_exact_branch.py`의 구형 P0 브랜치 고정을 `STAGE12_SOURCE`로 교체, `RUN_P0_QA.cmd`에서 Git/ZIP 다른 검증 경로, 새 `quality/qa_source_archive.py`로 GitHub ZIP 전체 파일 무결성 확인. 오래된 SHA256 매니페스트는 HISTORICAL 표시.
+- P2 수정: 대형 RGBA one-pass trim 전 디스크 여유를 스풀 + 최종 PNG + 256MiB로 보수적 예약.
+- QA 대상: `tests/test_stage12_source_archive.py`, 기존 `tests/test_exact_branch_qa.py`, Stage11 OCG/15개 합성 일괄 추출 및 Qt 라이트/다크. `RUN_STAGE12_QA.cmd` 로컬 수동 절차.
+- **정적 소스 분석과 실제 QA를 혼동하지 않음:** 이 감사 중 전체 Windows 실행·15개 실물 OnMap·대형 DXF 402MiB 확대·메모리 피크·실기 화질·공인서명은 **NOT RUN**.
+- 과거 CI 262 PASS는 현행 Stage12 검증결과가 아님. User 요청 GitHub Actions 중단 상태 유지. 공식 main/Release/Drive 기준본 미변경.
