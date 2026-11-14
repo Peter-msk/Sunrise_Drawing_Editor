@@ -169,8 +169,8 @@ def audit(path: Path | None, layers: list[str], *, trials: int, views: int) -> d
                 if layer is None:
                     raise ValueError(f'Unknown layer: {name}')
                 doc.set_visibility(layer.key, True)
-            # The regular app stays unchanged: opt in within this audit only.
-            doc._experimental_large_cad_displaylist = True
+            # Audit the same bounded behavior now enabled by default in the
+            # Stage10 candidate. Do not bypass eligibility or memory guards.
             t = time.perf_counter()
             temp, page = doc._get_page_context()
             meta['cad_to_pdf_and_staging_seconds'] = round(time.perf_counter()-t, 4)
@@ -180,8 +180,8 @@ def audit(path: Path | None, layers: list[str], *, trials: int, views: int) -> d
             meta['selective_staging_used'] = stats is not None
             eligible = bool(doc._cad_selective is not None and
                             temp is None and doc._cad_view_pdf is not None and
-                            meta['staged_pdf_bytes'] <= 2 * 1024 * 1024 and
-                            stats is not None and 0 < stats.selected_entities <= 512)
+                            meta['staged_pdf_bytes'] <= 1536 * 1024 and
+                            stats is not None and 0 < stats.selected_entities <= 256)
         if page is None:
             return {**meta, 'decision': 'DEFER', 'reason': 'No visible page'}
         meta['page_size_pt'] = [round(page.rect.width, 3), round(page.rect.height, 3)]
