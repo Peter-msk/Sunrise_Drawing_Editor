@@ -106,6 +106,21 @@ def run_batch_exports_isolated(jobs, options, *, progress=None, cancelled=None):
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait(timeout=2.0)
+            # A forced kill bypasses the child's Python finally. The exported
+            # file itself remains atomic, but temporary PNG/JPG/raw fragments
+            # may remain. Only delete paths tagged with this exact child PID.
+            # Other sessions and user-created output are never touched.
+            for parent in {Path(job.target).parent for job in jobs}:
+                for pattern in (f".drawing-{process.pid}-*",
+                                f".drawing-rgb-{process.pid}-*"):
+                    try:
+                        for partial in parent.glob(pattern):
+                            try:
+                                partial.unlink(missing_ok=True)
+                            except OSError:
+                                pass
+                    except OSError:
+                        pass
 
 
 def worker_main(argv=None) -> int:
