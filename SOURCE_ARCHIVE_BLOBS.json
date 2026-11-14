@@ -1,7 +1,7 @@
 {
   "version": 1,
   "algorithm": "git-blob-sha1",
-  "basis": "GitHub Peter-msk/Sunrise_Drawing_Editor audit source snapshot 7f76d8ef68889c08414e7f8d00e5f23f150d7ca9; archive manifest self-file intentionally excluded",
+  "basis": "GitHub Peter-msk/Sunrise_Drawing_Editor Stage12 audit source payload at d5531aedc10346ffddcd33aa0518745701578f8e (manifest self excluded)",
   "files": {
     ".gitignore": "9c8fba3ffaa2eb00bd2fb0297757aab32e9bf9d3",
     "assets/app.ico": "ed24931cf056861c72d95e40033a8f1740919193",
@@ -174,7 +174,7 @@
     "quality/PNG_CROP_DEFAULT_EXPORT_HASHES.json": "1b195e2b0d04938fa62d80c8784be2de4386b3d5",
     "quality/PNG_CROP_REGRESSION_188_TESTS.log": "e4a5f6bbe44348dbc54aa771f93aa9c48997b8d0",
     "quality/qa_dxf_onmap_handoff.py": "e15e722df0f772db87374ada3df7022c4e1cfe02",
-    "quality/qa_exact_branch.py": "5350199c5882726e47b39c2c730389f1e44b76f6",
+    "quality/qa_exact_branch.py": "5ee67b7203d46faf742bf5f9205ba941b8da4236",
     "quality/qa_gui_layout.py": "9a92f321123a720e1a7193d70b236544aca283d0",
     "quality/qa_source_archive.py": "e4f6c57e5e6ecdd7bc38130fbce7ee58a5fef3c9",
     "quality/qa_windows_ui_capture_stage8.py": "f015f3f21e984aa7cdc68642de088370e4ab36b3",
