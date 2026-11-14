@@ -92,3 +92,19 @@ def catalog_result_is_current(seq: int, actual_path: str | None,
     """
     return (bool(actual_path) and actual_path == expected_path
             and latest.get(actual_path) == seq and actual_path in documents)
+
+
+def layer_search_feedback(query: str, matched: int,
+                          editable: int) -> tuple[bool, str]:
+    """Resolve native Qt filter-action visibility without mutating drawing state.
+
+    A match can be present but locked. Do not display inert ON/OFF controls
+    when no matching layer is editable; show a meaningful reason instead.
+    """
+    if not str(query).strip():
+        return False, ''
+    if matched <= 0:
+        return False, '검색된 레이어가 없습니다. 검색어를 지우면 전체 목록이 다시 표시됩니다.'
+    if editable <= 0:
+        return False, '검색된 레이어가 모두 잠겨 있어 표시 상태를 변경할 수 없습니다.'
+    return True, ''
