@@ -19,7 +19,8 @@ from PySide6.QtWidgets import (
 
 from .core import (DrawingDocument, DrawingError, RenderCancelled, OutputOptions,
                    render_snapshot, preview_snapshot, export_snapshot)
-from .batch import LayerRule, LayerRuleStore, apply_rule, plan_exports, run_batch_exports
+from .batch import LayerRule, LayerRuleStore, apply_rule, plan_exports
+from .batch_worker import run_batch_exports_isolated
 from .icons import icon_file
 from .cad_worker import should_isolate_cad, render_isolated, shutdown_all_workers
 from .state import DrawingState
@@ -148,14 +149,27 @@ class ImageCanvas(QGraphicsView):
         self.viewChanged.emit()
 
     def wheelEvent(self,event):
-        dy = event.angleDelta().y()
-        pixel_dy = event.pixelDelta().y()
-        if dy or pixel_dy:
-            # Fractional wheel deltas support smooth precision trackpads.
-            self.zoom(zoom_factor_for_delta(dy, pixel_dy))
-            event.accept()
-        else:
-            super().wheelEvent(event)
+        # Ctrl+wheel zooms under the cursor. Without Ctrl, retain Qt's
+        # native vertical/horizontal scrolling (including precision trackpads).
+        # Shift+vertical wheel explicitly pans horizontally for mouse wheels.
+        modifiers = event.modifiers()
+        if modifiers & Qt.KeyboardModifier.ControlModifier:
+            dy = event.angleDelta().y()
+            pixel_dy = event.pixelDelta().y()
+            if dy or pixel_dy:
+                self.zoom(zoom_factor_for_delta(dy, pixel_dy))
+                event.accept()
+                return
+        elif modifiers & Qt.KeyboardModifier.ShiftModifier:
+            dy = event.angleDelta().y()
+            pixel_dy = event.pixelDelta().y()
+            shift = pixel_dy if pixel_dy else dy
+            if shift:
+                bar = self.horizontalScrollBar()
+                bar.setValue(bar.value() - shift)
+                event.accept()
+                return
+        super().wheelEvent(event)
 
     def resizeEvent(self,event):
         super().resizeEvent(event)
@@ -331,15 +345,15 @@ class RenderTask(QRunnable):
                                            clip=self.clip,
                                            cancelled=self.cancel_event.is_set if self.cancel_event else None),self.clip)
             elif self.mode=='batch_export':
-                last_update=[0.0]
-                def progress(index,total,fraction,name):
-                    now=time.monotonic()
-                    if fraction==0.0 or fraction>=1.0 or now-last_update[0]>=0.15:
-                        last_update[0]=now
-                        self.signals.batch_progress.emit(self.seq,index,total,fraction,name)
-                value=run_batch_exports(self.jobs,self.options,progress=progress,
-                       cancelled=self.cancel_event.is_set if self.cancel_event else None,
-                       render_gate=_MUPDF_GATE)
+                # All native PDF export work runs in a separate process.
+                # This also removes Pillow/zlib GIL contention from the Qt
+                # event loop and lets preview/catalog requests use MuPDF safely.
+                value=run_batch_exports_isolated(
+                    self.jobs, self.options,
+                    progress=lambda index,total,fraction,name:
+                        self.signals.batch_progress.emit(
+                            self.seq,index,total,fraction,name),
+                    cancelled=self.cancel_event.is_set if self.cancel_event else None)
             else:
                 progress=lambda p:self.signals.progress.emit(self.mode,self.seq,p)
                 cancelled=self.cancel_event.is_set if self.cancel_event else None
@@ -652,8 +666,21 @@ class DrawingWindow(QMainWindow):
         self.layer_search.setPlaceholderText('레이어명 검색 (Ctrl+F)')
         self.layer_search.setClearButtonEnabled(True)
         self.layer_search.setToolTip('레이어 목록만 검색합니다. ON/OFF 상태는 변경하지 않습니다.')
-        self.layer_search.addAction(self._icon('search'), QLineEdit.ActionPosition.LeadingPosition)
-        layers_layout.addWidget(self.layer_search)
+        # A native QLineEdit leading action sits below optical center on
+        # Windows 125-175% DPI. Put a centered glyph in a shared bordered row.
+        self.layer_search_frame = QFrame()
+        self.layer_search_frame.setObjectName('layerSearchFrame')
+        search_row = QHBoxLayout(self.layer_search_frame)
+        search_row.setContentsMargins(9, 0, 5, 0)
+        search_row.setSpacing(5)
+        self.layer_search_icon = QLabel()
+        self.layer_search_icon.setObjectName('layerSearchIcon')
+        self.layer_search_icon.setFixedSize(20, 28)
+        self.layer_search_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.layer_search_icon.setPixmap(self._icon('search').pixmap(QSize(17, 17)))
+        search_row.addWidget(self.layer_search_icon)
+        search_row.addWidget(self.layer_search, 1)
+        layers_layout.addWidget(self.layer_search_frame)
         layer_actions = QHBoxLayout()
         layer_actions.setSpacing(5)
         self.layer_on_button = QPushButton('전체 켜기')
@@ -818,11 +845,11 @@ class DrawingWindow(QMainWindow):
         preview_layout.addLayout(preview_controls)
         self.canvas = ImageCanvas()
         self.canvas.setObjectName('previewCanvas')
-        self.canvas.setAccessibleName('도면 미리보기, 휠 확대 및 마우스 드래그 이동')
+        self.canvas.setAccessibleName('도면 미리보기, Ctrl+휠 확대, 일반 휠 스크롤, 드래그 이동')
         self.canvas.viewChanged.connect(self._update_zoom_label)
         self.canvas.viewChanged.connect(self.request_detail)
         preview_layout.addWidget(self.canvas, 1)
-        self.view_status = ElidedLabel('레이어를 변경하면 자동 갱신 · 마우스 휠로 확대/축소')
+        self.view_status = ElidedLabel('Ctrl+휠: 확대/축소 · 휠: 상하 이동 · Shift+휠: 좌우 이동')
         self.view_status.setObjectName('hint')
         preview_status_row=QHBoxLayout()
         preview_status_row.addWidget(self.view_status, 1)
@@ -1197,9 +1224,11 @@ class DrawingWindow(QMainWindow):
             QMainWindow,QWidget#drawingRoot,QWidget#workArea,QScrollArea#workAreaScroll {{background:{bg};}}
             QWidget#drawingRoot,QToolBar#toolbar {{color:{fg};font-family:"Malgun Gothic","Noto Sans CJK KR",sans-serif;font-size:12px;}}
             QToolBar#toolbar {{background:{panel};border-bottom:1px solid {border};spacing:5px;padding:6px 10px;}}
-            QToolBar#toolbar QToolButton {{padding:7px 9px;border:1px solid transparent;border-radius:6px;color:{fg};}}
-            QToolBar#toolbar QToolButton:disabled {{color:{muted};}}
-            QToolBar#toolbar QToolButton:hover {{background:{hover};border-color:{border};}}
+            QToolBar#toolbar QToolButton {{background:{input_bg};padding:7px 10px;margin:0px 2px;
+                border:1px solid {border};border-radius:6px;color:{fg};min-height:23px;}}
+            QToolBar#toolbar QToolButton:disabled {{color:{muted};background:{bg};border-color:{border};}}
+            QToolBar#toolbar QToolButton:hover {{background:{hover};border-color:{primary};}}
+            QToolBar#toolbar QToolButton:pressed {{background:{highlight};border-color:{primary};}}
             QLabel#brand {{font-size:10px;color:{muted};font-weight:700;}}
             QWidget#drawingRoot QPushButton,QWidget#drawingRoot QToolButton,QToolBar#toolbar QPushButton {{
                 background:{input_bg};border:1px solid {border};border-radius:6px;padding:6px 9px;min-height:23px;color:{fg};
@@ -1217,8 +1246,17 @@ class DrawingWindow(QMainWindow):
             QWidget#drawingRoot QPushButton[uxRole="primary"]:focus {{border:2px solid {fg};padding:7px 11px;}}
             QWidget#drawingRoot QPushButton[uxRole="primary"]:disabled {{background:#80746E;border-color:#80746E;color:#FFFFFF;}}
             QFrame#filesPane,QFrame#layersPane,QFrame#pane,QGroupBox#exportPanel {{background:{panel};border:1px solid {border};border-radius:8px;}}
-            QGroupBox#exportPanel {{margin-top:11px;font-weight:700;}}
-            QGroupBox#exportPanel::title {{subcontrol-origin:margin;left:12px;padding:0 6px;color:{fg};}}
+            QGroupBox#exportPanel {{margin-top:11px;font-weight:700;font-size:14px;}}
+            QGroupBox#exportPanel::title {{subcontrol-origin:margin;left:12px;padding:0 6px;color:{fg};font-size:14px;}}
+            QGroupBox#exportPanel QLabel,QGroupBox#exportPanel QRadioButton,
+            QGroupBox#exportPanel QCheckBox,QGroupBox#exportPanel QComboBox,
+            QGroupBox#exportPanel QPushButton,QGroupBox#exportPanel QLineEdit {{
+                font-size:12px;font-weight:400;
+            }}
+            QGroupBox#exportPanel QLabel#hint,QGroupBox#exportPanel QLabel#exportTarget {{
+                font-size:12px;
+            }}
+            QGroupBox#exportPanel QPushButton[uxRole="primary"] {{font-weight:700;}}
             QWidget#drawingRoot QLabel,QWidget#drawingRoot QCheckBox,QWidget#drawingRoot QRadioButton,
             QWidget#drawingRoot QGroupBox {{color:{fg};}}
             QWidget#drawingRoot QLabel:disabled,QWidget#drawingRoot QCheckBox:disabled,
@@ -1243,6 +1281,11 @@ class DrawingWindow(QMainWindow):
             QHeaderView::section {{background:{bg};border:0;border-bottom:1px solid {border};color:{muted};padding:5px;}}
             QGraphicsView#previewCanvas {{border:1px solid {border};border-radius:5px;}}
             QWidget#drawingRoot QLineEdit,QWidget#drawingRoot QComboBox,QWidget#drawingRoot QSpinBox {{background:{input_bg};color:{fg};border:1px solid {border};border-radius:5px;padding:5px 7px;min-height:23px;}}
+            QFrame#layerSearchFrame {{background:{input_bg};border:1px solid {border};border-radius:5px;}}
+            QFrame#layerSearchFrame QLineEdit#layerSearch,
+            QFrame#layerSearchFrame QLineEdit#layerSearch:focus {{
+                border:none;background:transparent;padding:5px 2px;min-height:23px;
+            }}
             QWidget#drawingRoot QComboBox QAbstractItemView {{background:{input_bg};color:{fg};selection-background-color:{highlight};selection-color:{fg};}}
             QWidget#drawingRoot QComboBox QAbstractItemView::item {{color:{fg};min-height:22px;}}
             QWidget#drawingRoot QLineEdit:disabled,QWidget#drawingRoot QComboBox:disabled {{color:{muted};background:{bg};}}
@@ -1263,6 +1306,7 @@ class DrawingWindow(QMainWindow):
         # changes; otherwise a dark icon could stay on a light background.
         self.add_action.setIcon(self._icon('add'))
         self.remove_action.setIcon(self._icon('remove'))
+        self.layer_search_icon.setPixmap(self._icon('search').pixmap(QSize(17, 17)))
         for button, name in (
             (self.light_button, 'sun'), (self.dark_button, 'moon'),
             (self.select_all_button, 'select_all'),
