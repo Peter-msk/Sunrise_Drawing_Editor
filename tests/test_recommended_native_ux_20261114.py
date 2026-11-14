@@ -49,6 +49,16 @@ class RecommendedNativeUXContracts(unittest.TestCase):
             build.index("self._apply_responsive_layout(self.width())"),
         )
 
+    def test_elided_drawing_label_keeps_full_accessible_text(self):
+        label = next(obj for obj in TREE.body if isinstance(obj, ast.ClassDef)
+                     and obj.name == "ElidedLabel")
+        method = next(obj for obj in label.body if isinstance(obj, ast.FunctionDef)
+                      and obj.name == "setText")
+        source = ast.get_source_segment(WINDOW, method)
+        self.assertIn("self.setToolTip(self._complete_text)", source)
+        self.assertIn("self.setAccessibleName(self._complete_text)", source)
+        self.assertIn("self._update_elision()", source)
+
     def test_progress_meter_has_accessible_purpose_and_real_values(self):
         source = method_text("_build_ui")
         self.assertIn("self.progress.setAccessibleName('이미지 추출 진행률')", source)
