@@ -142,3 +142,12 @@
 - 제공된 **실제 온맵 추출 PNG 8개**를 직접 검사: 모두 1416×2048/RGBA(alpha=255), 보이는 도면 범위 (113,195)-(1300,1673), 외곽 크롭 결과 1187×1478, 원본 범위 픽셀 동일.
 - **해당 도엽의 원본 온맵 PDF는 Library/Drive에서 확인되지 않아 PDF 실물의 OCG 렌더링 결과를 직접 검증했다고 주장하지 않음.** 원본 PNG를 임시 PDF에 배치한 대체 입력 시험과 프로그램 기존 PDF·DXF 테스트는 완료.
 - 자동 회귀 188/188 PASS; 기존 불투명 PNG/JPG SHA-256 동일; 실제 Windows PySide6·EXE·고DPI QA NOT RUN.
+
+## 2026-11-14 Stage 10 — 제한적 대형 DXF DisplayList 반복 렌더링 후보
+
+- 부모: Stage 9 GitHub 후보 `9dbb4203c0525dc2e84c778e4fa22c6c9b607fcf` (별도 후보 브랜치만 변경).
+- 기능 변경: DXF 선택 적재로 생성한 작은 PDF(<=1.5MiB, 선택 엔티티 1~256개)에 한하여 두 번째 clipped preview부터 하나의 PyMuPDF DisplayList를 재사용하도록 기본 활성화.
+- 원본 도면, 레이어 편집 규칙, 이미지 출력, 빌드 CMD, CAD 백엔드와 사용자 GUI는 변경하지 않음. 레이어/소스 전환 때 기존 리스트 폐기, 오류 시 ThreePass 원경로 복귀 유지.
+- 긴급 롤백: Windows CMD 실행 전에 `set SUNRISE_DISABLE_LARGE_CAD_DISPLAYLIST=1`.
+- 기존 2026-11-13 합성 측정 5.31554→1.26031초(50회 뷰 렌더, 출력 픽셀 동일)는 **과거 합성 근거**이고 본 소스 Windows 실측이 아님.
+- 새 후보의 원격 브랜치 정확한 전체 unittest, 402MiB 실물 peak RSS/속도, Windows onefile/GUI/서명: **NOT RUN**. 공식 릴리스 **HOLD**, Actions/workflows **미사용/없음**.
