@@ -206,6 +206,8 @@ class ElidedLabel(QLabel):
     def setText(self, text):
         self._complete_text = str(text)
         self.setToolTip(self._complete_text)
+        # Elision is visual only; assistive tech must receive the full filename.
+        self.setAccessibleName(self._complete_text)
         self._update_elision()
 
     def _update_elision(self):
