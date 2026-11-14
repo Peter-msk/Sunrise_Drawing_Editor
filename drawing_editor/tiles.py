@@ -102,7 +102,8 @@ def _chunk(stream, label, data):
 
 
 def save_png_tiled(page, stream, width, height, dpi, *, progress=None,
-                   cancelled=None, transparent=False, source_rect=None):
+                   cancelled=None, transparent=False, source_rect=None,
+                   cached_stripes=None):
     """Encode RGB or RGBA PNG scanlines without a full-size RAM bitmap."""
     stream.write(b'\x89PNG\r\n\x1a\n')
     _chunk(stream, b'IHDR', struct.pack('!IIBBBBB', width, height, 8,
@@ -127,9 +128,18 @@ def save_png_tiled(page, stream, width, height, dpi, *, progress=None,
     # then omit outside rows/columns BEFORE PNG compression. This guarantees
     # byte-for-byte RGB(A) pixel parity, including vector anti-aliasing at tile
     # edges, without allocating a full-page bitmap or editing input geometry.
-    stripes = raster_stripes(page, full_width, full_height, progress=progress,
-                             cancelled=cancelled, transparent=transparent)
+    # A single-pass, temporary-file-backed crop may supply the exact SAME
+    # rendered stripes already scanned for content bounds. This avoids a
+    # second expensive full-resolution PDF rasterization, while reusing the
+    # existing streaming PNG encoder and preserving every output pixel.
+    stripes = (cached_stripes if cached_stripes is not None
+               else raster_stripes(page, full_width, full_height,
+                                   progress=progress, cancelled=cancelled,
+                                   transparent=transparent))
     for y0, y1, stripe in stripes:
+        _check(cancelled)
+        if cached_stripes is not None and progress:
+            progress(y1 / full_height)
         first = max(y0, top)
         last = min(y1, top + height)
         if first >= last:
