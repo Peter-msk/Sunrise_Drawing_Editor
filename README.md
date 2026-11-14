@@ -203,3 +203,13 @@
 - **라이트/다크 공통:** 검색 돋보기 수직 중앙 정렬, 상단 도면 추가·현재 도면 제거 버튼의 경계/배경 표현, 04 이미지 추출의 일반 컨트롤 글자 크기 12px 통일.
 - **검증:** `python -m unittest discover -s tests -p 'test_batch_responsiveness_stage11.py' -v`. 전체 ZIP에 기존 `BUILD_ONEFILE.cmd` 포함. 수동 Windows 실측 15개 OnMap/QT 실제 응답성, 실제 고DPI 화면 QA, 새 Onefile/signing = **NOT RUN**.
 - GitHub Actions는 생성/활성화하지 않으며 공식 `main`, 기존 Release, Drive 기준본은 변경하지 않음. 상세내용: `candidates/STAGE11_BATCH_EXPORT_RESPONSIVE_20261114.md`.
+
+## 2026-11-14 — Stage 12: 렌더링 엔진 실체 감사 및 소스 QA 기준 복구
+
+- **렌더링 엔진 전면 교체 아님:** PDF는 PyMuPDF(MuPDF), DXF는 ezdxf Frontend→PyMuPDF Backend 기반. 직접 고속 LINE 백엔드, 선택적 DXF 적재, ThreePass, DisplayList 및 별도 프로세스 실행을 사용. DWG는 별도 ODA/LibreCAD CLI 대안 경로.
+- **소스 QA 문제 수정:** 이전 P0 브랜치에 고정된 `quality/qa_exact_branch.py`를 현행 `STAGE12_SOURCE`로 갱신. `RUN_P0_QA.cmd`는 Git 체크아웃에서는 엄격한 브랜치/커밋 검사, GitHub 다운로드 ZIP에서는 `quality/qa_source_archive.py`의 전체 파일 blob 검증을 수행.
+- 오래된 `SOURCE_SHA256_MANIFEST.json`은 역사 기록임을 명시. Stage12 ZIP의 현행 바이트 검증은 `SOURCE_ARCHIVE_BLOBS.json` (Git blob object ID) 사용.
+- **원본 자동 추출:** 약 12MP 이하 일반 온맵 PNG에는 고용량 단일 패스 스풀 최적화가 적용되지 않음. 체감 가속이나 15장 추출시간 감소 수치는 실물 Windows 시험 전에는 확정하지 않음.
+- **대용량 투명 PNG 안전:** 12MP 초과 & crop 옵션의 1회 렌더 후보는 예상 RGBA 스풀의 2배 + 256MiB 디스크 여유를 보유할 때만 실행; 아니면 정확한 기존 2패스 경로.
+- **최소 검증:** `RUN_STAGE12_QA.cmd`. 이미 통과한 전체 엔진 회귀는 기본적으로 중복 실행하지 않되, 최종 공식 배포 전에는 별도 전체·Windows·실물 파일 QA가 필요함.
+- **배포 상태:** `main`, 공식 Release, Drive 기준본 변경 없음. GitHub Actions 0개/실행 안 함. 신뢰된 Windows 서명 및 실물 15장 QA는 **NOT RUN**.
