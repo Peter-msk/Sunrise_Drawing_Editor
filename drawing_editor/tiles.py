@@ -1,6 +1,7 @@
 """Large PNG/JPG exports: page tiles, bounded rendering RAM, no artificial pixel cap."""
 from __future__ import annotations
 import mmap
+import os
 import struct
 import tempfile
 import zlib
@@ -170,7 +171,7 @@ def save_jpg_tiled(page, destination: Path, width, height, dpi, *, progress=None
     """
     path = None
     try:
-        with tempfile.NamedTemporaryFile(prefix='.drawing-rgb-', suffix='.raw',
+        with tempfile.NamedTemporaryFile(prefix=f'.drawing-rgb-{os.getpid()}-', suffix='.raw',
                                          dir=destination.parent, delete=False) as fp:
             path = Path(fp.name)
             fp.truncate(width*height*3)
