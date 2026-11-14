@@ -121,9 +121,16 @@ def worker_main(argv=None) -> int:
     try:
         request = json.loads((folder / "request.json").read_text(encoding="utf-8"))
         options = OutputOptions(**request["options"]).checked()
-        jobs = [ExportJob(item["source"], item["states"],
-                          int(item["page_index"]), item["target"])
-                for item in request["jobs"]]
+        jobs = []
+        for item in request["jobs"]:
+            # JSON object keys are strings. PDF OCG state keys are integer
+            # xrefs; without restoring their type, every visibility snapshot
+            # silently falls back to the source PDF's original layer state.
+            states = item["states"]
+            if Path(item["source"]).suffix.casefold() == ".pdf":
+                states = {int(key): bool(value) for key, value in states.items()}
+            jobs.append(ExportJob(item["source"], states,
+                                  int(item["page_index"]), item["target"]))
         cancel_flag = folder / "cancel.flag"
         last_update = [0.0]
 
