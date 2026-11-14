@@ -7,6 +7,7 @@ from collections import Counter
 from io import BytesIO
 from pathlib import Path
 import os
+import shutil
 import tempfile
 import threading
 from typing import Callable
@@ -18,7 +19,8 @@ from ezdxf.addons.drawing import Frontend, RenderContext, layout as cad_layout, 
 from ezdxf.addons.drawing.config import Configuration, BackgroundPolicy, ColorPolicy
 from PIL import Image
 from .tiles import save_png_tiled, save_jpg_tiled
-from .trim import find_content_crop, image_ink_bbox
+from .trim import (find_content_crop, image_ink_bbox,
+                   save_png_tiled_crop_single_pass)
 from .cad_spatial import CADGridIndex
 from .cad_selective import VisibleDXFSource, SelectiveDXFUnsupported, SelectiveDXFCancelled
 from .cad_render_fast import FastPyMuPdfBackend
@@ -1121,72 +1123,97 @@ class DrawingDocument:
                 if progress: progress(1.)
             else:
                 width,height,dpi=_export_pixel_dimensions(page, opts)
-                # Crop only the PNG canvas; preserve the original PDF layer,
-                # scaling, DPI and all vector commands. Fail safely on uncertain
-                # inspection rather than silently removing any map symbols.
-                # The native small-image path can inspect its own pixmap
-                # without rasterizing the PDF twice. Large exports use an
-                # exact scanline pass so even fine details remain intact.
-                crop = (find_content_crop(page, width, height,
-                                          progress=(lambda p: progress(p * .5)) if progress else None,
-                                          cancelled=cancelled)
-                        if opts.fmt == 'png' and opts.crop_margins
-                        and width * height > 12_000_000 else None)
-                out_width = crop[2] - crop[0] if crop else width
-                out_height = crop[3] - crop[1] if crop else height
-                if width * height <= 12_000_000:
-                    # Use the ORIGINAL page pixel scale even for a cropped view.
-                    matrix=fitz.Matrix(width/page.rect.width,
-                                       height/page.rect.height)
-                    pix=page.get_pixmap(matrix=matrix,
-                                        colorspace=fitz.csRGB,
-                                        alpha=opts.fmt=='png' and opts.background=='transparent',
-                                        annots=True)
-                    if opts.fmt=='png':
-                        if opts.crop_margins:
-                            # Fast, exact trim from the same raster as the
-                            # original export. No redundant PDF re-render and
-                            # no vector anti-aliasing changes at clip borders.
-                            channels = 'RGBA' if opts.background=='transparent' else 'RGB'
-                            image = Image.frombytes(channels,(pix.width,pix.height),pix.samples)
-                            try:
-                                trim = image_ink_bbox(image)
-                            finally:
-                                image.close()
-                            if trim:
-                                # PyMuPDF RGBA pixmap samples are premultiplied.
-                                # Saving them through Pillow darkens soft alpha
-                                # edges. Crop the ORIGINAL pixmap natively so
-                                # MuPDF handles PNG alpha conversion exactly as
-                                # in the uncropped export.
-                                px, py = pix.irect[:2]
-                                region = fitz.IRect(trim[0]+px, trim[1]+py,
-                                                    trim[2]+px, trim[3]+py)
-                                selected = fitz.Pixmap(pix, pix.width, pix.height, region)
-                                selected.set_dpi(dpi, dpi)
-                                selected.save(str(temporary))
+                # For large transparent PNGs with trim enabled, avoid the
+                # expensive second PDF raster pass. Reuse exact RGBA stripes
+                # from a bounded disk spool. If storage is insufficient,
+                # retain the legacy two-pass renderer unchanged.
+                single_pass_crop = False
+                if (opts.fmt == 'png' and opts.crop_margins
+                        and opts.background == 'transparent'
+                        and width * height > 12_000_000):
+                    required = width * height * 4
+                    try:
+                        single_pass_crop = (
+                            required <= 1024 * 1024 * 1024
+                            and shutil.disk_usage(target.parent).free >=
+                            required + 128 * 1024 * 1024)
+                    except OSError:
+                        single_pass_crop = False
+                if single_pass_crop:
+                    with open(temporary, 'wb') as stream:
+                        save_png_tiled_crop_single_pass(
+                            page, stream, width, height, dpi,
+                            scratch_dir=target.parent, progress=progress,
+                            cancelled=cancelled)
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                else:
+                    # Crop only the PNG canvas; preserve the original PDF layer,
+                    # scaling, DPI and all vector commands. Fail safely on uncertain
+                    # inspection rather than silently removing any map symbols.
+                    # The native small-image path can inspect its own pixmap
+                    # without rasterizing the PDF twice. Large exports use an
+                    # exact scanline pass so even fine details remain intact.
+                    crop = (find_content_crop(page, width, height,
+                                              progress=(lambda p: progress(p * .5)) if progress else None,
+                                              cancelled=cancelled)
+                            if opts.fmt == 'png' and opts.crop_margins
+                            and width * height > 12_000_000 else None)
+                    out_width = crop[2] - crop[0] if crop else width
+                    out_height = crop[3] - crop[1] if crop else height
+                    if width * height <= 12_000_000:
+                        # Use the ORIGINAL page pixel scale even for a cropped view.
+                        matrix=fitz.Matrix(width/page.rect.width,
+                                           height/page.rect.height)
+                        pix=page.get_pixmap(matrix=matrix,
+                                            colorspace=fitz.csRGB,
+                                            alpha=opts.fmt=='png' and opts.background=='transparent',
+                                            annots=True)
+                        if opts.fmt=='png':
+                            if opts.crop_margins:
+                                # Fast, exact trim from the same raster as the
+                                # original export. No redundant PDF re-render and
+                                # no vector anti-aliasing changes at clip borders.
+                                channels = 'RGBA' if opts.background=='transparent' else 'RGB'
+                                image = Image.frombytes(channels,(pix.width,pix.height),pix.samples)
+                                try:
+                                    trim = image_ink_bbox(image)
+                                finally:
+                                    image.close()
+                                if trim:
+                                    # PyMuPDF RGBA pixmap samples are premultiplied.
+                                    # Saving them through Pillow darkens soft alpha
+                                    # edges. Crop the ORIGINAL pixmap natively so
+                                    # MuPDF handles PNG alpha conversion exactly as
+                                    # in the uncropped export.
+                                    px, py = pix.irect[:2]
+                                    region = fitz.IRect(trim[0]+px, trim[1]+py,
+                                                        trim[2]+px, trim[3]+py)
+                                    selected = fitz.Pixmap(pix, pix.width, pix.height, region)
+                                    selected.set_dpi(dpi, dpi)
+                                    selected.save(str(temporary))
+                                else:
+                                    pix.set_dpi(dpi, dpi)
+                                    pix.save(str(temporary))
                             else:
-                                pix.set_dpi(dpi, dpi)
+                                pix.set_dpi(dpi,dpi)
                                 pix.save(str(temporary))
                         else:
-                            pix.set_dpi(dpi,dpi)
-                            pix.save(str(temporary))
+                            image=Image.frombytes('RGB',(pix.width,pix.height),pix.samples)
+                            image.save(temporary,format='JPEG',dpi=(dpi,dpi),quality=98,subsampling=0)
+                            image.close()
+                        if progress:progress(1.)
+                    elif opts.fmt=='png':
+                        with open(temporary,'wb') as stream:
+                            save_png_tiled(page,stream,out_width,out_height,dpi,
+                                           progress=(lambda p: progress(.5 + p * .5))
+                                           if opts.crop_margins and progress else progress,
+                                           cancelled=cancelled,
+                                           transparent=opts.background=='transparent',
+                                           source_rect=(crop[0],crop[1],width,height) if crop else None)
+                            stream.flush();os.fsync(stream.fileno())
                     else:
-                        image=Image.frombytes('RGB',(pix.width,pix.height),pix.samples)
-                        image.save(temporary,format='JPEG',dpi=(dpi,dpi),quality=98,subsampling=0)
-                        image.close()
-                    if progress:progress(1.)
-                elif opts.fmt=='png':
-                    with open(temporary,'wb') as stream:
-                        save_png_tiled(page,stream,out_width,out_height,dpi,
-                                       progress=(lambda p: progress(.5 + p * .5))
-                                       if opts.crop_margins and progress else progress,
-                                       cancelled=cancelled,
-                                       transparent=opts.background=='transparent',
-                                       source_rect=(crop[0],crop[1],width,height) if crop else None)
-                        stream.flush();os.fsync(stream.fileno())
-                else:
-                    save_jpg_tiled(page,temporary,width,height,dpi,progress=progress,cancelled=cancelled)
+                        save_jpg_tiled(page,temporary,width,height,dpi,progress=progress,cancelled=cancelled)
             if cancelled and cancelled():
                 raise InterruptedError('이미지 추출이 취소되었습니다.')
             os.link(temporary,target)  # atomic no-overwrite
