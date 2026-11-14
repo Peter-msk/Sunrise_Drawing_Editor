@@ -28,7 +28,7 @@ from .ui_design import THEMES, panel_layout
 from .ui_interaction import (matching_editable_layers, file_add_status,
                              zoom_factor_for_delta, clamp_zoom_factor,
                              preview_raster_size, detail_tile_covers,
-                             catalog_result_is_current)
+                             catalog_result_is_current, layer_search_feedback)
 
 ASSETS = Path(__file__).resolve().parent.parent / 'assets'
 # PyMuPDF's native cache is process-global. Concurrent PDF raster/metadata
@@ -1081,10 +1081,14 @@ class DrawingWindow(QMainWindow):
             if visible:
                 matches += 1
         self._update_layer_summary(matches=matches)
-        self.layer_empty_hint.setVisible(bool(text) and matches == 0 and total > 0)
-        self.filtered_actions.setVisible(bool(text) and matches > 0 and self.current_doc() is not None
-                                         and self.current_doc().loaded)
+        # _sync_actions resolves editable rather than merely matching layers:
+        # a locked-only search must not expose disabled ON/OFF action controls.
         self._sync_actions()
+        show_actions, explanation = layer_search_feedback(
+            text, matches, int(self.filter_on_button.isEnabled()))
+        self.filtered_actions.setVisible(show_actions)
+        self.layer_empty_hint.setText(explanation)
+        self.layer_empty_hint.setVisible(bool(explanation) and total > 0)
 
     def _update_layer_summary(self, matches=None):
         doc = self.current_doc()
@@ -1460,6 +1464,8 @@ class DrawingWindow(QMainWindow):
                     item.setIcon(drawing_icon)
                     item.setData(Qt.ItemDataRole.UserRole, key)
                     item.setToolTip(key)
+                    item.setData(Qt.ItemDataRole.AccessibleDescriptionRole,
+                                 '도면의 레이어 정보를 읽는 중입니다.')
                     self.file_list.addItem(item)
                     if first is None:
                         first = item
@@ -1506,6 +1512,8 @@ class DrawingWindow(QMainWindow):
             item = self.file_list.item(row)
             if item.data(Qt.ItemDataRole.UserRole) == path:
                 item.setText(f'[{state.kind.upper()}]  {state.path.name}')
+                item.setData(Qt.ItemDataRole.AccessibleDescriptionRole,
+                             f'도면 레이어 {len(state.layers())}개 분석 완료.')
                 if item is self.file_list.currentItem():
                     self._selection_changed(item, None)
                 break
@@ -1972,6 +1980,8 @@ class DrawingWindow(QMainWindow):
                     if item.data(Qt.ItemDataRole.UserRole) == path:
                         item.setText(f'[오류] {Path(path).name}')
                         item.setToolTip(error)
+                        item.setData(Qt.ItemDataRole.AccessibleDescriptionRole,
+                                     f'도면 레이어 분석 실패: {error}')
                         break
             if self.current_doc() is not None and str(self.current_doc().path) == path:
                 self.view_status.setText('파일 읽기 실패: ' + error)
