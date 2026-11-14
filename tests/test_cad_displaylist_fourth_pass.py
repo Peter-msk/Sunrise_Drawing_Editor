@@ -1,4 +1,4 @@
-"""Candidate must remain opt-in for large DXF and byte/pixel safe.
+"""Bounded large DXF DisplayList candidate: default enable, safe opt-out.
 
 No real 402MiB fixture is claimed by these isolated tests.
 """
@@ -45,13 +45,14 @@ class FourthPassDisplayListGates(unittest.TestCase):
     def _request(self, rectangle=(0, 0, 200, 160)):
         return self.drawing._get_preview_display_list(self.page, None, rectangle)
 
-    def test_large_source_is_disabled_by_default_even_on_second_clip(self):
+    def test_large_source_explicit_disable_keeps_threepass(self):
+        self.drawing._experimental_large_cad_displaylist = False
         with patch.object(Path, 'stat', return_value=SimpleNamespace(st_size=421_316_933)):
             self.assertIsNone(self._request())
             self.assertIsNone(self._request((4, 4, 205, 161)))
         self.assertIsNone(self.drawing._preview_display_list)
 
-    def test_explicit_audit_optin_is_lazy_and_exact(self):
+    def test_large_source_default_enabled_is_lazy_and_exact(self):
         self.drawing._experimental_large_cad_displaylist = True
         with patch.object(Path, 'stat', return_value=SimpleNamespace(st_size=421_316_933)):
             self.assertIsNone(self._request())
@@ -67,18 +68,18 @@ class FourthPassDisplayListGates(unittest.TestCase):
                                  colorspace=fitz.csRGB)
             self.assertEqual(bytes(old.samples), bytes(new.samples))
 
-    def test_audit_optin_still_rejects_large_pdf_or_expanded_layer_count(self):
+    def test_large_source_rejects_oversized_pdf_or_entity_count(self):
         self.drawing._experimental_large_cad_displaylist = True
         with patch.object(Path, 'stat', return_value=SimpleNamespace(st_size=421_316_933)):
-            self.drawing._cad_view_pdf_bytes = 2 * 1024 * 1024 + 1
+            self.drawing._cad_view_pdf_bytes = 1536 * 1024 + 1
             self.assertIsNone(self._request())
             self.drawing._cad_view_pdf_bytes = 512_000
-            self.drawing._cad_selective_last_stats = SimpleNamespace(selected_entities=9533)
+            self.drawing._cad_selective_last_stats = SimpleNamespace(selected_entities=257)
             self.assertIsNone(self._request())
             self.drawing._cad_selective_last_stats = SimpleNamespace(selected_entities=0)
             self.assertIsNone(self._request())
 
-    def test_outdated_layer_state_never_enables_large_audit(self):
+    def test_outdated_layer_state_never_enables_large_cache(self):
         self.drawing._experimental_large_cad_displaylist = True
         self.drawing._cad_selective_key = (('ARCS', False),)
         with patch.object(Path, 'stat', return_value=SimpleNamespace(st_size=421_316_933)):
