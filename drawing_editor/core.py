@@ -1095,7 +1095,7 @@ class DrawingDocument:
         temporary, tempdoc = None,None
         try:
             tempdoc,page = self._get_page_context()
-            with tempfile.NamedTemporaryFile(prefix='.drawing-', suffix='.'+opts.fmt,
+            with tempfile.NamedTemporaryFile(prefix=f'.drawing-{os.getpid()}-', suffix='.'+opts.fmt,
                                              dir=target.parent, delete=False) as fp:
                 temporary=Path(fp.name)
             if page is None:
