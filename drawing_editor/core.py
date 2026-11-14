@@ -1125,7 +1125,9 @@ class DrawingDocument:
                 width,height,dpi=_export_pixel_dimensions(page, opts)
                 # For large transparent PNGs with trim enabled, avoid the
                 # expensive second PDF raster pass. Reuse exact RGBA stripes
-                # from a bounded disk spool. If storage is insufficient,
+                # from a bounded disk spool. Reserve space for BOTH the RGBA
+                # spool and a potentially large final PNG plus safety margin.
+                # If storage is insufficient,
                 # retain the legacy two-pass renderer unchanged.
                 single_pass_crop = False
                 if (opts.fmt == 'png' and opts.crop_margins
@@ -1136,7 +1138,7 @@ class DrawingDocument:
                         single_pass_crop = (
                             required <= 1024 * 1024 * 1024
                             and shutil.disk_usage(target.parent).free >=
-                            required + 128 * 1024 * 1024)
+                            required * 2 + 256 * 1024 * 1024)
                     except OSError:
                         single_pass_crop = False
                 if single_pass_crop:
