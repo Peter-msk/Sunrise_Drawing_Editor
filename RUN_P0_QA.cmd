@@ -22,13 +22,9 @@ if not defined PY_RUN (
 %PY_RUN% "build\preflight.py" runtime
 if errorlevel 1 goto :failed
 
-echo [SOURCE GATE] Verify exact clean Git development branch
+echo [SOURCE GATE] Verify Git branch OR standalone GitHub source ZIP
 if not exist "quality\P0_runtime" mkdir "quality\P0_runtime"
-if defined EXPECTED_SOURCE_SHA (
-    %PY_RUN% "quality\qa_exact_branch.py" --expected-commit "%EXPECTED_SOURCE_SHA%" --report "quality\P0_runtime\SOURCE_IDENTITY.json"
-) else (
-    %PY_RUN% "quality\qa_exact_branch.py" --report "quality\P0_runtime\SOURCE_IDENTITY.json"
-)
+call :verify_source
 if errorlevel 1 goto :failed
 
 echo [1/9] Exact Git source identity: self-test
@@ -83,12 +79,8 @@ if /I "%RUN_ALL_TESTS%"=="1" (
     if errorlevel 1 goto :failed
 )
 echo.
-echo [SOURCE GATE] Recheck the same source after regression
-if defined EXPECTED_SOURCE_SHA (
-    %PY_RUN% "quality\qa_exact_branch.py" --expected-commit "%EXPECTED_SOURCE_SHA%" --report "quality\P0_runtime\SOURCE_IDENTITY.json"
-) else (
-    %PY_RUN% "quality\qa_exact_branch.py" --report "quality\P0_runtime\SOURCE_IDENTITY.json"
-)
+echo [SOURCE GATE] Recheck source bytes after regression
+call :verify_source
 if errorlevel 1 goto :failed
 
 echo [PASS] Completed requested QA commands only.
@@ -103,3 +95,17 @@ echo [FAILED] Runtime QA did not finish successfully.
 echo [INFO] Do not promote the work branch or copy the EXE to dist.
 popd
 exit /b 1
+
+:verify_source
+if exist ".git\" (
+    echo [INFO] Git checkout: strict branch/commit/source-identity validation
+    if defined EXPECTED_SOURCE_SHA (
+        %PY_RUN% "quality\qa_exact_branch.py" --expected-commit "%EXPECTED_SOURCE_SHA%" --report "quality\P0_runtime\SOURCE_IDENTITY.json"
+    ) else (
+        %PY_RUN% "quality\qa_exact_branch.py" --report "quality\P0_runtime\SOURCE_IDENTITY.json"
+    )
+) else (
+    echo [INFO] GitHub ZIP: verify each tracked file against recorded Git blobs
+    %PY_RUN% "quality\qa_source_archive.py" --report "quality\P0_runtime\SOURCE_IDENTITY.json"
+)
+exit /b %ERRORLEVEL%
