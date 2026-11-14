@@ -170,3 +170,11 @@
 - QA 대상: `tests/test_stage12_source_archive.py`, 기존 `tests/test_exact_branch_qa.py`, Stage11 OCG/15개 합성 일괄 추출 및 Qt 라이트/다크. `RUN_STAGE12_QA.cmd` 로컬 수동 절차.
 - **정적 소스 분석과 실제 QA를 혼동하지 않음:** 이 감사 중 전체 Windows 실행·15개 실물 OnMap·대형 DXF 402MiB 확대·메모리 피크·실기 화질·공인서명은 **NOT RUN**.
 - 과거 CI 262 PASS는 현행 Stage12 검증결과가 아님. User 요청 GitHub Actions 중단 상태 유지. 공식 main/Release/Drive 기준본 미변경.
+
+## Stage13 — UI/UX 최종감사 변경 후보 (2026-11-14)
+
+- 이번 변경: `window.py`의 좁은 창 미리보기 버튼 행 분할, Ctrl+S 안전 처리, 툴바 초점 표시. CAD/PDF/레이어/추출 엔진 변경 없음.
+- QA: `RUN_STAGE13_UI_QA.cmd`, `quality/qa_stage13_ui_final.py`, `tests/test_stage13_ui_final.py` 추가.
+- GitHub 소스 동일성: 최종 branch/manifest 대조 후 기록. 이전 Stage12 PASS로 신규 Stage13 Qt 렌더 PASS 대체 금지.
+- **Windows 4 DPI × 2 themes × 4 widths PNG 캡처·시각확인 = NOT RUN**, 사용자 15장 온맵 처리 중 UI 응답성 = NOT RUN, 서명 onefile = NOT RUN.
+- GitHub Actions 0개, 공식 main / 기존 Release 무변경; 공식 배포 HOLD.
