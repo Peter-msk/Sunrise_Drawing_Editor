@@ -63,13 +63,20 @@ class CADDisplayListCandidateTests(unittest.TestCase):
         self.drawing._cad_selective_key = (("other_layer", True),)
         self.assertIsNone(self.drawing._get_preview_display_list(self.page, None, clip))
 
-    def test_large_source_dxf_keeps_threepass_renderer(self):
+    def test_large_source_bounded_stage_reuses_second_clip(self):
         clip = (0, 0, 200, 150)
         fake = SimpleNamespace(st_size=421_316_933)
         with patch.object(Path, "stat", return_value=fake):
             self.assertIsNone(self.drawing._get_preview_display_list(self.page, None, clip))
+            self.assertIsNotNone(self.drawing._get_preview_display_list(self.page, None, clip))
+
+    def test_large_source_respects_explicit_disable(self):
+        clip = (0, 0, 200, 150)
+        self.drawing._experimental_large_cad_displaylist = False
+        fake = SimpleNamespace(st_size=421_316_933)
+        with patch.object(Path, "stat", return_value=fake):
             self.assertIsNone(self.drawing._get_preview_display_list(self.page, None, clip))
-        self.assertIsNone(self.drawing._preview_display_list)
+            self.assertIsNone(self.drawing._get_preview_display_list(self.page, None, clip))
 
     def test_failure_does_not_retry_until_new_state(self):
         clip = (0, 0, 200, 150)
