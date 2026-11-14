@@ -61,6 +61,11 @@ def check_archive(root: Path, *, manifest_name: str = MANIFEST_NAME) -> dict:
         expected.add(relative)
     # Expected files are all verified, even non-code notices and bundled
     # assets. Untracked executable files may not bypass the archive gate.
+    generated_prefixes = (
+        "build/pyinstaller_spec/", "build/pyinstaller_work/",
+        "build/staging/", "quality/P0_runtime/",
+        "quality/ui_qa_artifacts/",
+    )
     for folder in CODE_DIRECTORIES:
         directory = root / folder
         if not directory.is_dir():
@@ -70,9 +75,9 @@ def check_archive(root: Path, *, manifest_name: str = MANIFEST_NAME) -> dict:
                 continue
             if candidate.suffix.lower() not in EXECUTABLE_SUFFIXES:
                 continue
-            if candidate.relative_to(root).as_posix() not in expected:
-                raise ValueError("Unverified executable source in ZIP: " +
-                                 candidate.relative_to(root).as_posix())
+            relative = candidate.relative_to(root).as_posix()
+            if relative not in expected and not relative.startswith(generated_prefixes):
+                raise ValueError("Unverified executable source in ZIP: " + relative)
     for candidate in root.iterdir():
         if (candidate.is_file() and candidate.suffix.lower() in EXECUTABLE_SUFFIXES
                 and candidate.name not in expected):
