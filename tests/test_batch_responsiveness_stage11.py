@@ -98,6 +98,16 @@ class Stage11ExactCropContracts(unittest.TestCase):
 
 
 class Stage11ProcessContracts(unittest.TestCase):
+    def test_cancel_before_start_creates_no_output(self):
+        with tempfile.TemporaryDirectory() as root:
+            target = Path(root) / 'never.png'
+            result = run_batch_exports_isolated(
+                [ExportJob(str(Path(root) / 'not-opened.pdf'),{},0,str(target))],
+                OutputOptions('png'), cancelled=lambda: True)
+            self.assertTrue(result.cancelled)
+            self.assertFalse(target.exists())
+            self.assertEqual(result.completed,())
+
     def test_pdf_ocg_visibility_keys_survive_worker_json_roundtrip(self):
         with tempfile.TemporaryDirectory() as root:
             home = Path(root)
