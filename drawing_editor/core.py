@@ -310,10 +310,12 @@ class DrawingDocument:
         self._preview_display_list: fitz.DisplayList | None = None
         self._preview_display_key: tuple | None = None
         self._preview_display_failed_key: tuple | None = None
-        # Audit-only opt-in for the unapproved >96MiB CAD DisplayList candidate.
-        # Production remains on the field-validated ThreePass page renderer.
-        # The comparison CLI enables this only for isolated benchmarking.
-        self._experimental_large_cad_displaylist = False
+        # The user-approved bounded DisplayList candidate is now enabled for
+        # repeated clipped previews of small *staged* PDFs, even when the
+        # source DXF itself is large. The original ThreePass path remains the
+        # fallback; set SUNRISE_DISABLE_LARGE_CAD_DISPLAYLIST=1 for rollback.
+        self._experimental_large_cad_displaylist = (
+            os.environ.get("SUNRISE_DISABLE_LARGE_CAD_DISPLAYLIST") != "1")
         self.page_index = 0
         self._preview_cancelled = None
         try:
@@ -940,16 +942,19 @@ class DrawingDocument:
             if self._serialize_fallback or self.path.stat().st_size > 96 * 1024 * 1024:
                 return None
         elif self._cad_view_pdf is not None:
-            # Experimental candidate only: opt in in a controlled, isolated
-            # audit. Never switch the validated >96MiB field renderer on in
-            # the regular UI until actual-DXF RGB/RSS/latency gates pass.
+            # The staged PDF, not the 402MiB input DXF, is the display-list
+            # owner. Keep the large-source adoption narrower than the older
+            # small-source experiment; one live list per worker and complete
+            # invalidation on layer/source transition remain mandatory.
             source_large = self.path.stat().st_size > 96 * 1024 * 1024
-            if source_large and not getattr(self, '_experimental_large_cad_displaylist', False):
+            if source_large and not getattr(self, '_experimental_large_cad_displaylist', True):
                 return None
             stats = self._cad_selective_last_stats
-            if (self._cad_view_pdf_bytes > 2 * 1024 * 1024 or
+            byte_limit = (1536 * 1024 if source_large else 2 * 1024 * 1024)
+            entity_limit = (256 if source_large else 512)
+            if (self._cad_view_pdf_bytes > byte_limit or
                     self._cad_selective_key != tuple(self._states.items()) or
-                    stats is None or not 0 < stats.selected_entities <= 512):
+                    stats is None or not 0 < stats.selected_entities <= entity_limit):
                 return None
         elif self._cad_layered_pdf is None or self.path.stat().st_size > 96 * 1024 * 1024:
             return None
@@ -957,9 +962,8 @@ class DrawingDocument:
                  self._cad_view_pdf if self._cad_view_pdf is not None else self._cad_layered_pdf)
         key = (self.page_index, tuple(self._states.items()), id(owner))
         if self._preview_display_key != key:
-            # On staged CAD, build the list only after a *second* distinct
-            # clipped preview. This avoids paying the parse cost for one-off
-            # zoom requests while enabling repeated pan/zoom acceleration.
+            # On staged CAD, build the list only on a second clipped preview
+            # request. A one-off zoom pays no DisplayList allocation cost.
             self._preview_display_list = None
             self._preview_display_key = key
             self._preview_display_failed_key = None
