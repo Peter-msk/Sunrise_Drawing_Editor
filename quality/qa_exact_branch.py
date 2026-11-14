@@ -14,7 +14,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-REQUIRED_BRANCH = "work/p0-render-lifecycle-audit-20261113"
+REQUIRED_BRANCH = "audit/stage12-source-identity-engine-20261114"
 REQUIRED_REPOSITORY = "peter-msk/sunrise_drawing_editor"
 AUDITED_PATHS = ("drawing_editor", "tests", "assets", "quality",
                  "build", "main.py", "RUN_P0_QA.cmd", "BUILD_ONEFILE.cmd")
@@ -107,9 +107,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--report", type=Path)
     parser.add_argument("--expected-commit", default=None)
+    parser.add_argument("--required-branch", default=REQUIRED_BRANCH,
+                        help="Explicit approved audit branch; mismatches fail closed")
     args = parser.parse_args(argv)
     try:
-        data = check_source(args.root, expected_commit=args.expected_commit)
+        data = check_source(args.root, expected_commit=args.expected_commit,
+                            required_branch=args.required_branch)
     except (ValueError, OSError, subprocess.TimeoutExpired, FileNotFoundError) as exc:
         print("[FAIL] Exact Git-branch source identity: " + str(exc), file=sys.stderr)
         return 1
