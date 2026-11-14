@@ -97,7 +97,7 @@ popd
 exit /b 1
 
 :verify_source
-if exist ".git\" (
+if exist ".git" (
     echo [INFO] Git checkout: strict branch/commit/source-identity validation
     if defined EXPECTED_SOURCE_SHA (
         %PY_RUN% "quality\qa_exact_branch.py" --expected-commit "%EXPECTED_SOURCE_SHA%" --report "quality\P0_runtime\SOURCE_IDENTITY.json"
