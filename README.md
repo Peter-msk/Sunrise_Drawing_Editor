@@ -186,3 +186,11 @@
 - 제공된 **실제 온맵 추출 PNG 8개**를 직접 검사: 모두 1416×2048/RGBA(alpha=255), 보이는 도면 범위 (113,195)-(1300,1673), 외곽 크롭 결과 1187×1478, 원본 범위 픽셀 동일.
 - **해당 도엽의 원본 온맵 PDF는 Library/Drive에서 확인되지 않아 PDF 실물의 OCG 렌더링 결과를 직접 검증했다고 주장하지 않음.** 원본 PNG를 임시 PDF에 배치한 대체 입력 시험과 프로그램 기존 PDF·DXF 테스트는 완료.
 - 자동 회귀 188/188 PASS; 기존 불투명 PNG/JPG SHA-256 동일; 실제 Windows PySide6·EXE·고DPI QA NOT RUN.
+
+## 2026-11-14 — Stage 10 제한적 DisplayList 반복 렌더링 후보
+
+- 사용자가 Windows 빌드, 온맵 열기, 레이어 ON/OFF 및 이미지 추출의 기존 정상 동작을 확인하여, 이번 변경은 **클립 미리보기 캐시 활성화 조건**에만 한정합니다.
+- 96MiB를 초과하는 대형 DXF라도 선택적으로 생성된 임시 PDF가 **1.5MiB 이하**이고, 선택 엔티티가 **1~256개**이며, 레이어 상태가 유효하면 두 번째 클립 렌더 요청부터 PyMuPDF DisplayList 한 개를 재사용합니다.
+- 대상 레이어 조합이 크거나 지원되지 않으면 변경 전 ThreePass 페인터 경로를 사용합니다. DXF 원본, OCG, 출력 해상도, 이미지 추출 기능, GUI, 빌드 설정은 수정하지 않습니다.
+- Windows에서 문제가 발생하면 CMD에서 `set SUNRISE_DISABLE_LARGE_CAD_DISPLAYLIST=1`을 지정하여 대형 DXF에만 새 캐시를 비활성화할 수 있습니다.
+- **실물 DXF의 피크 메모리·Windows 전체 회귀·속도 개선 검증은 NOT RUN입니다.** 이 ZIP은 공식 배포본이 아닌 사용자 검수용 전체 소스 후보입니다. 세부 계약은 `candidates/DISPLAYLIST_BOUNDED_STAGE10_20261114.md` 참조.
