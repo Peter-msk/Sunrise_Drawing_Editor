@@ -98,6 +98,33 @@ class Stage11ExactCropContracts(unittest.TestCase):
 
 
 class Stage11ProcessContracts(unittest.TestCase):
+    def test_pdf_ocg_visibility_keys_survive_worker_json_roundtrip(self):
+        with tempfile.TemporaryDirectory() as root:
+            home = Path(root)
+            source = home / 'layered-onmap.pdf'
+            with fitz.open() as pdf:
+                page = pdf.new_page(width=100, height=100)
+                layer_xref = pdf.add_ocg('Visible map layer', on=1)
+                page.draw_rect(fitz.Rect(18,18,82,82), fill=(1,0,0),
+                               color=(1,0,0),oc=layer_xref)
+                pdf.save(source)
+            jobs = [
+                ExportJob(str(source), {layer_xref: True}, 0,
+                          str(home / 'visible.png')),
+                ExportJob(str(source), {layer_xref: False}, 0,
+                          str(home / 'hidden.png')),
+            ]
+            report = run_batch_exports_isolated(
+                jobs, OutputOptions('png',resolution='hd'))
+            self.assertEqual(len(report.completed), 2)
+            self.assertFalse(report.errors)
+            with Image.open(home/'visible.png') as enabled, \
+                 Image.open(home/'hidden.png') as hidden:
+                self.assertNotEqual(enabled.convert('RGB').tobytes(),
+                                    hidden.convert('RGB').tobytes())
+                self.assertEqual(hidden.convert('RGB').getpixel(
+                    (hidden.width//2,hidden.height//2)), (255,255,255))
+
     def test_fifteen_small_pdf_exports_without_overwriting_source(self):
         with tempfile.TemporaryDirectory() as root:
             home = Path(root)
