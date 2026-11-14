@@ -1,3 +1,5 @@
+> **역사 기록 주의 (Stage 12 감사, 2026-11-14):** 본 파일의 GitHub Actions/262개 PASS 결과는 과거 2026-11-14 공식 main 개발 시점의 *이력*입니다. 이후 사용자 지시에 따라 모든 GitHub Actions 워크플로가 제거됐으며, Stage 11/Stage 12 후보의 새 회귀시험·실물 Windows QA가 통과했다고 해석해서는 안 됩니다. 현행 검증은 `RUN_STAGE12_QA.cmd`의 수동 로컬 CMD 절차와 `SOURCE_ARCHIVE_BLOBS.json`을 기준으로 하며 자동 실행은 하지 않습니다.
+
 # Sunrise Drawing Editor — 소스 전용 정식 릴리스 (2026-11-14)
 
 ## 배포 유형
