@@ -194,3 +194,12 @@
 - 대상 레이어 조합이 크거나 지원되지 않으면 변경 전 ThreePass 페인터 경로를 사용합니다. DXF 원본, OCG, 출력 해상도, 이미지 추출 기능, GUI, 빌드 설정은 수정하지 않습니다.
 - Windows에서 문제가 발생하면 CMD에서 `set SUNRISE_DISABLE_LARGE_CAD_DISPLAYLIST=1`을 지정하여 대형 DXF에만 새 캐시를 비활성화할 수 있습니다.
 - **실물 DXF의 피크 메모리·Windows 전체 회귀·속도 개선 검증은 NOT RUN입니다.** 이 ZIP은 공식 배포본이 아닌 사용자 검수용 전체 소스 후보입니다. 세부 계약은 `candidates/DISPLAYLIST_BOUNDED_STAGE10_20261114.md` 참조.
+
+## 2026-11-14 — Stage 11: 15개 온맵 일괄 추출·화면 응답성 및 UI 정렬
+
+- **15개 일괄 PNG/JPG 추출:** `--batch-worker`를 별도 단일 하위 프로세스로 실행해 MuPDF/Pillow 작업을 메인 Qt 이벤트 루프와 분리. 순차 추출, 진행률·취소, 기존 파일명 보호 정책 유지. PDF OCG xref 정수 키는 JSON IPC 이후 복원하여 레이어별 추출 상태를 보존.
+- **대형 투명 PNG + 흰 여백 제거:** 기존 전체 해상도 2회 래스터를, 디스크 여유가 있을 때만 1회 래스터 + 유한 크기의 임시 RGBA 스풀 + 동일 무손실 PNG 인코더로 변경. 1GiB 초과 스풀 또는 공간 부족 시 이전 정확한 2-pass 경로 유지. 불투명 PNG/JPG·소형 PNG는 변경 없음.
+- **미리보기:** `Ctrl+휠` 확대/축소, 일반 휠 상하 스크롤, `Shift+휠` 좌우 이동. 기존 드래그 및 확대/축소 버튼 기능 유지.
+- **라이트/다크 공통:** 검색 돋보기 수직 중앙 정렬, 상단 도면 추가·현재 도면 제거 버튼의 경계/배경 표현, 04 이미지 추출의 일반 컨트롤 글자 크기 12px 통일.
+- **검증:** `python -m unittest discover -s tests -p 'test_batch_responsiveness_stage11.py' -v`. 전체 ZIP에 기존 `BUILD_ONEFILE.cmd` 포함. 수동 Windows 실측 15개 OnMap/QT 실제 응답성, 실제 고DPI 화면 QA, 새 Onefile/signing = **NOT RUN**.
+- GitHub Actions는 생성/활성화하지 않으며 공식 `main`, 기존 Release, Drive 기준본은 변경하지 않음. 상세내용: `candidates/STAGE11_BATCH_EXPORT_RESPONSIVE_20261114.md`.
