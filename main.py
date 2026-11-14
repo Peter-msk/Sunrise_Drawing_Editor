@@ -9,6 +9,9 @@ def main():
     if len(sys.argv) > 1 and sys.argv[1] == '--cad-worker':
         from drawing_editor.cad_worker import worker_main
         return worker_main(sys.argv[2:])
+    if len(sys.argv) > 1 and sys.argv[1] == '--batch-worker':
+        from drawing_editor.batch_worker import worker_main
+        return worker_main(sys.argv[2:])
 
     from PySide6.QtWidgets import QApplication
     from PySide6.QtGui import QIcon
