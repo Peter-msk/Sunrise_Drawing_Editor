@@ -58,7 +58,7 @@ class RecommendedNativeUXContracts(unittest.TestCase):
         self.assertIn("self.progress.setValue(", method_text("_progress"))
 
     def test_recommendations_do_not_add_web_backend_or_webview_runtime(self):
-        requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8").lower()
+        # Ignore comments: the existing requirements file documents that Qt\n        # WebEngine must NOT be installed, so a substring search is misleading.\n        requirements = "\\n".join(\n            line for line in (ROOT / "requirements.txt").read_text(encoding="utf-8").lower().splitlines()\n            if line.strip() and not line.lstrip().startswith("#")\n        )
         for web_only in ("react", "tailwind", "bootstrap", "supabase",
                          "strapi", "pocketbase", "electron", "webengine"):
             self.assertNotIn(web_only, requirements)
