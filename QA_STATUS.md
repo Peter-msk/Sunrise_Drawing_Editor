@@ -151,3 +151,13 @@
 - 긴급 롤백: Windows CMD 실행 전에 `set SUNRISE_DISABLE_LARGE_CAD_DISPLAYLIST=1`.
 - 기존 2026-11-13 합성 측정 5.31554→1.26031초(50회 뷰 렌더, 출력 픽셀 동일)는 **과거 합성 근거**이고 본 소스 Windows 실측이 아님.
 - 새 후보의 원격 브랜치 정확한 전체 unittest, 402MiB 실물 peak RSS/속도, Windows onefile/GUI/서명: **NOT RUN**. 공식 릴리스 **HOLD**, Actions/workflows **미사용/없음**.
+
+## Stage 11 — Windows 온맵 15장 일괄 추출 시 응답성·정렬 결함 보완 후보 (2026-11-14)
+
+- 사용자 실제 Windows 스크린샷: 일괄 추출 약 28%, 대량 PDF 15장 선택, UI '응답 없음' 보고. 라이트/다크·하단 04 글자·상단 버튼·검색 아이콘 불균형 재현 보고 포함.
+- 소스 확인 병목: 12MP 초과 + crop PNG의 정확한 두 번 래스터; GUI 프로세스 내 MuPDF 잠금으로 export와 preview 경합.
+- 수정: 별도 `--batch-worker` 원파일 subprocess; JSON snapshot OCG 정수 키 복원; 1회 렌더+디스크 스풀로 PNG 투명 크롭; Ctrl+휠/휠/Shift+휠; 상단/검색/하단 양 테마 동기화.
+- 가드: 1GiB 미만 스풀, 128MiB 디스크 여유 예약; 부족하면 원래 2회 패스; 원본은 읽기 전용, 결과 임시 원자적 무덮어쓰기.
+- 회귀 파일: `tests/test_batch_responsiveness_stage11.py` (15개 합성 PDF, OCG, PNG 스트라이프 바이트 동등, 취소/경로 및 UI 정적 계약).
+- Windows 사용자의 **15장 실물 OnMap**, PySide6 양 테마 100~175%DPI GUI, Onefile EXE, 신규 병목/응답성 실기 = **NOT RUN**. 소스 정적 감사만으로 실제 문제 해결 PASS를 주장하지 않음.
+- GitHub Actions 실행/생성/활성화 금지. `main` 및 공식 배포 변경 없음.
