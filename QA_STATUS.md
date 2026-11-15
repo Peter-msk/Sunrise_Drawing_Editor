@@ -178,3 +178,13 @@
 - GitHub 소스 동일성: 최종 branch/manifest 대조 후 기록. 이전 Stage12 PASS로 신규 Stage13 Qt 렌더 PASS 대체 금지.
 - **Windows 4 DPI × 2 themes × 4 widths PNG 캡처·시각확인 = NOT RUN**, 사용자 15장 온맵 처리 중 UI 응답성 = NOT RUN, 서명 onefile = NOT RUN.
 - GitHub Actions 0개, 공식 main / 기존 Release 무변경; 공식 배포 HOLD.
+
+## Stage 14 — 사용자 영상(2026-11-15) 렌더링 응답성/아이콘/레이어 체크박스 보완
+
+- 수정: `window.py` PDF 렌더 subprocess 격리·ON/OFF 260ms 디바운스/파일전환 110ms, `cad_worker.py` PDF OCG 정수 xref IPC 복원.
+- UI: `assets/icon_*.svg` 62개 개정 + `assets/checkbox_tick_white.svg` 신설, `window._apply_theme` 새 체크박스 checked/hover/disabled.
+- QA 코드: `tests/test_stage14_render_icons.py`, `quality/benchmark_stage14_onmap.py`, `RUN_STAGE14_QA.cmd`.
+- Source validation: 최신 Stage14 브랜치 pinned, GitHub ZIP blob manifest 업데이트 대상.
+- 104초 사용자 영상에는 15개 목록·규칙 일괄 적용 결과·복잡한 OnMap 미리보기 전환이 보임. 실제 Windows '응답 없음' OS 이벤트 로그 및 CPU/RSS 정밀 측정 정보는 없음.
+- **현재 상태**: GitHub source change reviewed; static source contracts checked. Windows native tests/실물 15장·양 테마 물리 DPI/출력 성능/Onefile EXE는 **NOT RUN**.
+- 원본 도면·정규 배포 `main`·GitHub Actions 상태 변경 없음. 최종 릴리스 **HOLD**.
