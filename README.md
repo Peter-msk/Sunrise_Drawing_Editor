@@ -223,3 +223,13 @@
 - 새 `RUN_STAGE13_UI_QA.cmd`는 4개 Qt 스케일(100~175%) × 라이트/다크 × 4개 창 너비의 스크린샷 및 기하 검사 보고서 생성. 결과 저장: `quality/P0_runtime/UI_STAGE13`.
 - 정확한 키보드·레이아웃 소스 회귀는 `tests/test_stage13_ui_final.py`에 분리. **실제 Windows GUI/15개 온맵·Onefile 실기 검증은 NOT RUN**.
 - 자세한 감사: `candidates/STAGE13_UIUX_FINAL_AUDIT_20261114.md`. GitHub Actions 재가동 없음, 기존 렌더 엔진 변경 없음.
+
+## Stage14 — 영상 기반 OnMap 레이어 렌더링 및 아이콘/체크박스 재설계 (2026-11-15)
+
+- 기존 대형 DXF에만 적용하던 네이티브 렌더 subprocess를 **OCG 레이어가 있는 OnMap PDF**의 preview/detail에도 확대 적용. 사용자 파일 전환·테마 전환·빠른 레이어 체크가 한 프로세스 안의 CPU 집중형 MuPDF 렌더에 매이지 않도록 격리. **DXF/온맵 원본과 OCG 의미 변경 없음**.
+- 레이어 1개, 2~3개 연속 ON/OFF를 **260ms 디바운스** 후 최종 snapshot 1회 렌더링. 초기 도면/페이지 선택은 110ms 스케줄. 새 PDF child는 JSON OCG xref 키를 정수로 복원하여 계층 상태를 보존.
+- 버튼 **20개 의미별 SVG 기본/라이트/다크 60종 + 흰색 export/stop 2종 + 체크 틱 1종**, 총 63개 벡터 자산 재구성. 목록 제거(문서−)와 삭제(휴지통) 등 실제 기능 의미 분리. 흰색/다크 체크박스는 새 17px 공통 형태 사용.
+- 실물 영상(104초 1544×930 30fps) 및 사용자 라이트 캡처에서 도면 전환 공백·기존 아이콘/체크박스 부조화를 확인. 영상 타임스탬프는 CPU 렌더 속도 수치로 쓰지 않음.
+- 로컬 수동 QA: `RUN_STAGE14_QA.cmd` — 정적 소스 컴파일·OCG 하위프로세스 픽셀 동등/상태 복구·기존 아이콘 색/중앙정렬 회귀·32개 GUI 캡처. 실제 사용자 PDF 15개는 `STAGE14_PDF_DIR`을 지정해 추가 비교 가능.
+- 실제 Windows onefile과 실물 온맵 속도·메모리·응답 없음 해결 PASS: **NOT RUN**. Stage14는 후보, 공식 main/Release 변경 없음. GitHub Actions 미사용.
+- 감사 및 인수인계: `candidates/STAGE14_ONMAP_RENDER_AND_UI_ICONS_20261115.md`.
