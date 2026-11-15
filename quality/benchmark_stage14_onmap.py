@@ -99,9 +99,13 @@ def main(argv=None):
     args.report.parent.mkdir(parents=True,exist_ok=True)
     args.report.write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     print('STAGE14_FIELD_REPORT',args.report)
-    return 0 if all(v["status"].startswith("PASS") or
-                      v["status"] in ("NO_OCG_LAYERS","ALL_LAYERS_LOCKED")
-                      for v in report["records"]) else 1
+    source_ok = all(v["status"].startswith("PASS") or
+                    v["status"] in ("NO_OCG_LAYERS","ALL_LAYERS_LOCKED")
+                    for v in report["records"])
+    startup_ok = (not args.exe or all(
+        record.get("returncode") == 0
+        for record in report["windows_startup"]["runs"]))
+    return 0 if source_ok and startup_ok else 1
 
 if __name__=="__main__":
     raise SystemExit(main())
