@@ -1222,6 +1222,7 @@ class DrawingWindow(QMainWindow):
         highlight, canvas = palette.selection, palette.canvas
         primary, primary_hover = palette.primary, palette.primary_hover
         active_text = palette.active_text
+        tick_icon = (ASSETS/'checkbox_tick_white.svg').resolve().as_posix()
         # Explicit Qt palette roles are the fallback for native/embedded
         # controls which do not inherit the stylesheet's color selector.
         qt_palette = self.palette()
@@ -1303,7 +1304,20 @@ class DrawingWindow(QMainWindow):
             QTreeWidget::item {{padding:4px 2px;color:{fg};}}
             QTreeWidget::item:alternate {{background:{bg};color:{fg};}}
             QTreeWidget::item:selected,QListWidget::item:selected {{background:{highlight};color:{fg};}}
-            QTreeWidget::indicator,QCheckBox::indicator {{width:14px;height:14px;}}
+            QTreeWidget::indicator,QCheckBox::indicator {{
+                width:17px;height:17px;border:1px solid {muted};
+                border-radius:4px;background:{input_bg};
+            }}
+            QTreeWidget::indicator:checked,QCheckBox::indicator:checked {{
+                background:{primary};border:1px solid {primary};
+                image:url("{tick_icon}");
+            }}
+            QTreeWidget::indicator:unchecked:hover,QCheckBox::indicator:unchecked:hover {{
+                border:2px solid {primary};background:{hover};
+            }}
+            QTreeWidget::indicator:disabled,QCheckBox::indicator:disabled {{
+                border:1px solid {border};background:{bg};
+            }}
             QHeaderView::section {{background:{bg};border:0;border-bottom:1px solid {border};color:{muted};padding:5px;}}
             QGraphicsView#previewCanvas {{border:1px solid {border};border-radius:5px;}}
             QWidget#drawingRoot QLineEdit,QWidget#drawingRoot QComboBox,QWidget#drawingRoot QSpinBox {{background:{input_bg};color:{fg};border:1px solid {border};border-radius:5px;padding:5px 7px;min-height:23px;}}
@@ -1321,7 +1335,6 @@ class DrawingWindow(QMainWindow):
             QScrollBar::handle:vertical:hover,QScrollBar::handle:horizontal:hover {{background:{muted};}}
             QScrollBar::add-line,QScrollBar::sub-line {{border:0;width:0;height:0;}}
             QWidget#drawingRoot QLineEdit:focus,QWidget#drawingRoot QComboBox:focus,QWidget#drawingRoot QSpinBox:focus {{border:2px solid {primary};padding:4px 6px;}}
-            QWidget#drawingRoot QCheckBox::indicator:checked {{background:{primary};border:2px solid {primary};border-radius:3px;}}
             QWidget#drawingRoot QRadioButton::indicator:checked {{background:{primary};border:2px solid {primary};border-radius:7px;}}
             QStatusBar {{background:{panel};color:{muted};border-top:1px solid {border};}}
             QProgressBar {{background:{border};border:none;border-radius:3px;}}
