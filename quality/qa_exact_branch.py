@@ -17,14 +17,14 @@ import sys
 REQUIRED_BRANCH = "STAGE14_SOURCE"
 REQUIRED_REPOSITORY = "peter-msk/sunrise_drawing_editor"
 AUDITED_PATHS = ("drawing_editor", "tests", "assets", "quality",
-                 "build", "main.py", "RUN_P0_QA.cmd", "RUN_STAGE12_QA.cmd", "RUN_STAGE13_UI_QA.cmd",
+                 "build", "main.py", "RUN_P0_QA.cmd", "RUN_STAGE12_QA.cmd", "RUN_STAGE13_UI_QA.cmd", "RUN_STAGE14_QA.cmd",
                  "BUILD_ONEFILE.cmd", "RUN.cmd", "INSTALL_AND_RUN.cmd",
                  "requirements.txt", "SOURCE_ARCHIVE_BLOBS.json",
                  "SOURCE_SHA256_MANIFEST.json")
 # Output JSON/log files are allowed. New executable test/QA Python source is not.
 UNTRACKED_CODE_PATHS = (
     "drawing_editor", "tests", "assets", "main.py",
-    "RUN_P0_QA.cmd", "RUN_STAGE12_QA.cmd", "RUN_STAGE13_UI_QA.cmd", "BUILD_ONEFILE.cmd",
+    "RUN_P0_QA.cmd", "RUN_STAGE12_QA.cmd", "RUN_STAGE13_UI_QA.cmd", "RUN_STAGE14_QA.cmd", "BUILD_ONEFILE.cmd",
     "RUN.cmd", "INSTALL_AND_RUN.cmd", "requirements.txt",
     "SOURCE_ARCHIVE_BLOBS.json",
     ":(glob)quality/**/*.py", ":(glob)quality/*.py",
