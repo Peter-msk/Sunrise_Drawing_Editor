@@ -1,6 +1,6 @@
 """Isolated, cancellable CAD preview process (one worker per preview thread).
 
-Only DXF previews above the source-size threshold use this path. The native
+Large DXF and layered OnMap PDF previews use this path. The native
 ThreePass rendering implementation remains in drawing_editor.core; it runs in
 the CHILD process with its own ezdxf / MuPDF state. No fitz.Document crosses IPC.
 
@@ -194,7 +194,7 @@ def render_isolated(mode: str, source: str, states: dict, page_index: int,
                     preview_size: tuple[int, int], *, clip=None, cancelled=None):
     """Call from the SINGLE preview QRunnable worker, never from the GUI thread."""
     if mode not in ("preview", "detail"):
-        raise ValueError("Only CAD preview/detail may run in a child process")
+        raise ValueError("Only native preview/detail may run in a child process")
     from .core import RenderCancelled
     if cancelled is not None and cancelled():
         raise RenderCancelled("미리보기 중단됨")
@@ -273,14 +273,21 @@ def worker_main(argv=None) -> int:
                 if (not isinstance(size, list) or len(size) != 2
                         or not all(type(v) is int and 1 <= v <= 4000 for v in size)):
                     raise ValueError("Invalid raster dimensions")
+                states = req["states"]
+                # JSON object property names are strings. PDF OCG xref keys
+                # MUST remain integers or every toggle gets silently ignored
+                # in DrawingDocument.apply_snapshot().
+                if Path(req["path"]).suffix.casefold() == ".pdf":
+                    states = {int(key): bool(value)
+                              for key, value in states.items()}
                 if req["mode"] == "preview":
                     pixels, geometry = preview_snapshot(
-                        req["path"], req["states"], int(req["page"]), tuple(size))
+                        req["path"], states, int(req["page"]), tuple(size))
                 elif req["mode"] == "detail":
                     clip = req["clip"]
                     if not (isinstance(clip, list) and len(clip) == 4):
                         raise ValueError("Invalid CAD clip")
-                    pixels = render_snapshot(req["path"], req["states"],
+                    pixels = render_snapshot(req["path"], states,
                                              int(req["page"]), tuple(size), clip=tuple(clip))
                     geometry = None
                 else:
