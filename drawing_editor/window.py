@@ -287,7 +287,8 @@ class Signals(QObject):
 
 class RenderTask(QRunnable):
     def __init__(self, mode, seq, path, states, page, preview_size=(1000,750),
-                 output='', options=None, clip=None, cancel_event=None, jobs=None):
+                 output='', options=None, clip=None, cancel_event=None, jobs=None,
+                 isolate_pdf=False):
         super().__init__()
         self.mode,self.seq=mode,seq
         self.path,self.states,self.page=path,dict(states),page
@@ -297,13 +298,14 @@ class RenderTask(QRunnable):
         self.cancel_event=cancel_event
         self.jobs=tuple(jobs or ())
         self._isolated_cad=False
+        self._isolate_pdf=bool(isolate_pdf)
         self.signals=Signals()
 
     def run(self):
         # A large DXF runs in its own process: no GUI-process MuPDF gate.
         # Its native renderer can be terminated when the user selects OnMap.
         self._isolated_cad = (self.mode in ('preview', 'detail')
-                              and should_isolate_cad(self.path))
+                              and (self._isolate_pdf or should_isolate_cad(self.path)))
         if self._isolated_cad:
             self._run_guarded()
             return
@@ -1717,7 +1719,7 @@ class DrawingWindow(QMainWindow):
             if doc.set_visibility(key,active):
                 item.setText(1,'표시' if active else '숨김')
                 self._update_layer_summary()
-                self.request_preview()
+                self.request_preview(layer_interaction=True)
         except DrawingError as exc:
             QMessageBox.warning(self,'레이어 오류',str(exc))
             self._selection_changed(self.file_list.currentItem(),None)
@@ -1739,7 +1741,7 @@ class DrawingWindow(QMainWindow):
         doc.apply_snapshot(changes)
         self._sync_current_layer_rows()
         self._update_layer_summary()
-        self.request_preview()
+        self.request_preview(layer_interaction=True)
         self.statusBar().showMessage(
             f'검색 결과 {len(matches)}개 중 {len(changes)}개 레이어 ' +
             ('표시' if visible else '숨김') + ' · 다른 레이어는 변경하지 않음', 9000)
@@ -1751,7 +1753,7 @@ class DrawingWindow(QMainWindow):
             if doc.set_all(visible):
                 self._sync_current_layer_rows()
                 self._update_layer_summary()
-                self.request_preview()
+                self.request_preview(layer_interaction=True)
         except DrawingError as exc:QMessageBox.warning(self,'레이어 오류',str(exc))
 
     def change_page(self,delta):
@@ -1768,7 +1770,7 @@ class DrawingWindow(QMainWindow):
     def canvas_fit(self):
         self.canvas.fit_image();self.request_detail()
 
-    def request_preview(self):
+    def request_preview(self, *, layer_interaction=False):
         if self._closing:
             return
         self._preview_seq+=1
@@ -1786,7 +1788,10 @@ class DrawingWindow(QMainWindow):
             self.view_status.setText('레이어 변경 대기 · 연속 조작을 모아 미리보기 갱신')
         self.detail_timer.stop()
         self.canvas.clear_detail()
-        self.preview_timer.start()
+        # Group successive checkbox clicks into one state snapshot, while
+        # keeping initial document/page selection snappy. A native worker
+        # always receives only the final state after this debounce.
+        self.preview_timer.start(260 if layer_interaction else 110)
 
     def _start_preview(self):
         if self._closing or self._preview_busy or not self._preview_pending:return
@@ -1802,7 +1807,8 @@ class DrawingWindow(QMainWindow):
         size=preview_raster_size(viewport.width(), viewport.height(),
                                  self.canvas.devicePixelRatioF())
         self._submit(RenderTask('preview',self._preview_seq,str(doc.path),doc.states(),doc.page_index,
-                                size,cancel_event=self._preview_cancel))
+                                size,cancel_event=self._preview_cancel,
+                                isolate_pdf=(doc.kind == 'pdf' and bool(doc.layers()))))
 
     def request_detail(self):
         if self._closing:
@@ -1842,7 +1848,8 @@ class DrawingWindow(QMainWindow):
         h=max(64,min(4000,round((clip[3]-clip[1])*page_pixels)))
         self.view_status.setText('확대 영역 고해상도 렌더링 중…')
         self._submit(RenderTask('detail',self._detail_seq,str(doc.path),doc.states(),doc.page_index,
-                                (w,h),clip=clip,cancel_event=self._detail_cancel))
+                                (w,h),clip=clip,cancel_event=self._detail_cancel,
+                                isolate_pdf=(doc.kind == 'pdf' and bool(doc.layers()))))
 
     def cancel_preview(self):
         """Cancel stale preview/detail work without mutating document layers."""
