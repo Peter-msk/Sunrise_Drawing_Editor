@@ -14,7 +14,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-REQUIRED_BRANCH = "STAGE13_SOURCE"
+REQUIRED_BRANCH = "STAGE14_SOURCE"
 REQUIRED_REPOSITORY = "peter-msk/sunrise_drawing_editor"
 AUDITED_PATHS = ("drawing_editor", "tests", "assets", "quality",
                  "build", "main.py", "RUN_P0_QA.cmd", "RUN_STAGE12_QA.cmd", "RUN_STAGE13_UI_QA.cmd",
