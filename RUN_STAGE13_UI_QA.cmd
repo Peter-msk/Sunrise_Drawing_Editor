@@ -22,7 +22,7 @@ if errorlevel 1 goto :failed
 
 echo [1/4] Verify source against exact Git branch or ZIP blob manifest
 if exist ".git" (
-  %PY_RUN% "quality\qa_exact_branch.py" --required-branch "STAGE13_SOURCE"
+  %PY_RUN% "quality\qa_exact_branch.py" --required-branch "STAGE14_SOURCE"
 ) else (
   %PY_RUN% "quality\qa_source_archive.py"
 )
@@ -41,7 +41,7 @@ for %%S in (1.0 1.25 1.5 1.75) do (
 
 echo [4/4] Revalidate exact source after Qt screenshot evidence
 if exist ".git" (
-  %PY_RUN% "quality\qa_exact_branch.py" --required-branch "STAGE13_SOURCE"
+  %PY_RUN% "quality\qa_exact_branch.py" --required-branch "STAGE14_SOURCE"
 ) else (
   %PY_RUN% "quality\qa_source_archive.py"
 )
