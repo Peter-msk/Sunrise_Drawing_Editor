@@ -1337,6 +1337,11 @@ class DrawingWindow(QMainWindow):
             QWidget#drawingRoot QLineEdit:focus,QWidget#drawingRoot QComboBox:focus,QWidget#drawingRoot QSpinBox:focus {{border:2px solid {primary};padding:4px 6px;}}
             QWidget#drawingRoot QRadioButton::indicator:checked {{background:{primary};border:2px solid {primary};border-radius:7px;}}
             QStatusBar {{background:{panel};color:{muted};border-top:1px solid {border};}}
+            QStatusBar QPushButton[uxRole="releaseAction"] {{background:{input_bg};color:{fg};border:1px solid {border};border-radius:6px;padding:4px 9px;min-height:23px;font-family:"Malgun Gothic","Noto Sans CJK KR",sans-serif;font-size:12px;}}
+            QStatusBar QPushButton[uxRole="releaseAction"]:hover {{background:{hover};border-color:{primary};}}
+            QStatusBar QPushButton[uxRole="releaseAction"]:pressed {{background:{highlight};border-color:{primary};}}
+            QStatusBar QPushButton[uxRole="releaseAction"]:focus {{border:2px solid {primary};padding:3px 8px;}}
+            QStatusBar QPushButton[uxRole="releaseAction"]:disabled {{background:{bg};color:{muted};border-color:{border};}}
             QProgressBar {{background:{border};border:none;border-radius:3px;}}
             QProgressBar::chunk {{background:{primary};border-radius:3px;}}
         ''')
@@ -1370,6 +1375,10 @@ class DrawingWindow(QMainWindow):
         for button in self.findChildren(QPushButton):
             if not button.icon().isNull():
                 button.setIconSize(QSize(18, 18))
+
+        controller = getattr(self, 'release_feed', None)
+        if controller is not None:
+            controller.refresh_theme()
 
     def set_theme(self,value):
         if self._theme!=value:

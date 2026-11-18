@@ -1,6 +1,6 @@
 import json
 import unittest
-from drawing_editor.release_feed import APP_ID, RELEASES, parse_release, version_tuple, notice_id
+from drawing_editor.release_feed import parse_update_info, APP_ID, RELEASES, parse_release, version_tuple, notice_id
 
 
 def fixture():
@@ -45,6 +45,22 @@ class ReleaseFeedTests(unittest.TestCase):
         data['automatic_update_available'] = 'true'
         with self.assertRaises(ValueError):
             parse_release(json.dumps(data))
+
+    def test_disabled_feed_retains_version_and_notes(self):
+        data = fixture()
+        data['update_endpoint_configured'] = False
+        data['release_notes'] = '배포 준비 중'
+        info = parse_update_info(json.dumps(data), current='1.0.0')
+        self.assertEqual(info.latest, '1.0.1')
+        self.assertEqual(info.notes, '배포 준비 중')
+        self.assertFalse(info.configured)
+        self.assertIsNone(info.release)
+
+    def test_invalid_notes_are_rejected(self):
+        data = fixture()
+        data['release_notes'] = []
+        with self.assertRaises(ValueError):
+            parse_update_info(json.dumps(data))
 
     def test_notice_id(self):
         self.assertEqual(notice_id(' hello '), notice_id('hello'))

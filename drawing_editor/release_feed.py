@@ -9,6 +9,7 @@ from urllib.request import Request, build_opener, HTTPRedirectHandler
 APP_VERSION = '1.0.0'
 APP_ID = 'sunrise_drawing_editor'
 ROOT = 'https://raw.githubusercontent.com/Peter-msk/Sunrise_Drawing_Editor/main/'
+GITHUB_MAIN = 'https://github.com/Peter-msk/Sunrise_Drawing_Editor/blob/main/'
 RELEASES = 'https://github.com/Peter-msk/Sunrise_Drawing_Editor/releases'
 _LIMIT = 65536
 
@@ -75,3 +76,23 @@ def parse_release(text, current=APP_VERSION):
 
 def notice_id(text):
     return hashlib.sha256(text.strip().encode('utf-8')).hexdigest()
+
+
+@dataclass(frozen=True)
+class UpdateInfo:
+    current: str
+    latest: str
+    configured: bool
+    notes: str
+    release: Release | None
+
+
+def parse_update_info(text, current=APP_VERSION):
+    """Preserve remote version and notes even when no downloadable EXE exists."""
+    release = parse_release(text, current)
+    data = json.loads(text)
+    notes = data.get('release_notes', '')
+    if not isinstance(notes, str) or len(notes) > 32000:
+        raise ValueError('Invalid release notes')
+    return UpdateInfo(current, data['latest_version'],
+                      data['update_endpoint_configured'], notes.strip(), release)

@@ -15,5 +15,6 @@
   "file_size_bytes": 0,
   "publisher": "Sunrise Group",
   "automatic_update_available": false,
-  "update_mode": "user_approved_self_replace"
+  "update_mode": "user_approved_self_replace",
+  "release_notes": "현재 검증된 신규 Onefile EXE는 등록되지 않았습니다. 공지사항 및 업데이트 UI 개선과 온맵 사용자 피드백 검증을 진행 중입니다."
 }

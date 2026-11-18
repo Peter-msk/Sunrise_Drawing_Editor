@@ -37,7 +37,7 @@ def main():
     app.setWindowIcon(QIcon(str(Path(__file__).parent / 'assets' / 'app.ico')))
     window = DrawingWindow(sys.argv[1:])
     from drawing_editor.release_ui import ReleaseFeedController
-    window.release_feed = ReleaseFeedController(window, auto_check=bool(getattr(sys, 'frozen', False)))
+    window.release_feed = ReleaseFeedController(window, auto_check=True)
     window.show()
     return app.exec()
 
