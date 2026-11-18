@@ -1,0 +1,72 @@
+{
+  "project": "Sunrise Drawing Editor",
+  "stage": 15,
+  "baseline": "e29fb82445d0dce4bb6f2e4a707f36b344b4242d",
+  "scope": "Linux independent geometric reproduction and exact release-feed unit tests; Windows QA not run",
+  "environment": {
+    "os": "Linux",
+    "PyMuPDF": "1.26.7",
+    "Pillow": "12.3.0",
+    "PySide6": "not installed"
+  },
+  "release_feed": {
+    "status": "PASS",
+    "tests": 6,
+    "source_git_blob": "79ae880f922155172734d8694d7f3afab0f6de68",
+    "test_git_blob": "0c21cd2736a2cdb21d9eee3d7372ce285ab68570",
+    "note": "Locally reproduced source and tests verified against exact Git blob ids before executing unittest; no actual server calls."
+  },
+  "rgb_crop_independent_probe": {
+    "status": "PASS",
+    "input": "four distinct synthetic OCG PDFs, Hide layer disabled in PyMuPDF, 3600 x 3600 pixels",
+    "test_type": "direct PyMuPDF raster comparison only; NOT the actual repository batch engine regression",
+    "old_rgba_alpha_bbox": [
+      9,
+      9,
+      3591,
+      3591
+    ],
+    "actual_rgb_bboxes": [
+      [
+        540,
+        630,
+        2700,
+        2790
+      ],
+      [
+        630,
+        630,
+        2700,
+        2790
+      ],
+      [
+        720,
+        630,
+        2700,
+        2790
+      ],
+      [
+        810,
+        630,
+        2700,
+        2790
+      ]
+    ],
+    "original_sha256_unchanged": true
+  },
+  "not_run": [
+    "repository four-sheet batch regression",
+    "repository updater pure helper tests",
+    "full source compileall",
+    "actual user four OnMap PDFs",
+    "Qt UI runtime",
+    "Windows EXE packaging and signature verification",
+    "native updater download / swap / restart / rollback",
+    "actual mark structure and permission analysis"
+  ],
+  "release": {
+    "main_changed": false,
+    "official_exe_published": false,
+    "automatic_update_enabled": false
+  }
+}
