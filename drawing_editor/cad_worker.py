@@ -41,6 +41,10 @@ def should_isolate_cad(path: str | Path, *, threshold: int = DXF_PROCESS_THRESHO
 
 def _worker_command(folder: Path) -> tuple[list[str], dict]:
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+    from .runtime_packaging import nuitka_worker_command
+    candidate = nuitka_worker_command("--cad-worker", folder, flags)
+    if candidate is not None:
+        return candidate
     if getattr(sys, "frozen", False):
         # PyInstaller onefile child shares the parent's unpacked resources and
         # must exit before the parent. Do NOT set RESET_ENVIRONMENT here.

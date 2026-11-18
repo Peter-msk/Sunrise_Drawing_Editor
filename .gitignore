@@ -24,3 +24,8 @@ quality/onefile_size/
 !build/onefile_lightweight.spec
 build/lightwork/
 dist_lightweight/
+
+# Compression experiment outputs
+!build/onefile_upx.spec
+build/compression_work/
+dist_compression/

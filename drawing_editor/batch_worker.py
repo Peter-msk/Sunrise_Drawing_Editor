@@ -32,6 +32,10 @@ def _atomic_json(path: Path, payload: dict) -> None:
 
 def _command(folder: Path) -> tuple[list[str], dict]:
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+    from .runtime_packaging import nuitka_worker_command
+    candidate = nuitka_worker_command("--batch-worker", folder, flags)
+    if candidate is not None:
+        return candidate
     if getattr(sys, "frozen", False):
         # Same onefile EXE: main.py routes --batch-worker before creating Qt.
         return [sys.executable, "--batch-worker", str(folder)], {"creationflags": flags}

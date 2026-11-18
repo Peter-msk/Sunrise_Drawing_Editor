@@ -259,7 +259,9 @@ class ReleaseFeedController(QObject):
                                notes + ('\n\n다운로드 가능한 신규 EXE가 등록되지 않았습니다.' if not info.configured else ''),
                                source_url=source)
                 return
-            automatic = release.automatic and sys.platform == 'win32' and bool(getattr(sys, 'frozen', False))
+            from .runtime_packaging import is_nuitka_candidate
+            automatic = (release.automatic and sys.platform == 'win32'
+                         and bool(getattr(sys, 'frozen', False)) and not is_nuitka_candidate())
             detail = ('서명과 SHA-256을 검증한 뒤 현재 EXE를 교체합니다.' if automatic
                       else '공식 배포 페이지에서 서명된 Onefile EXE를 확인하세요.')
             answer = self._show(kind, '신규 업데이트가 있습니다', 'GitHub · latest.json',
