@@ -26,21 +26,19 @@ if not defined PY_RUN (
     goto :failed
 )
 
-rem R20: explicit comparison modes; no arguments keep the original build.
-if /I "%~1"=="evaluate" goto :r20_compare
-if /I "%~1"=="compare" goto :r20_compare
+rem R21: no options; all available build stages run automatically.
 if not "%~1"=="" (
-    echo [ERROR] Use BUILD_ONEFILE.cmd ^| evaluate ^| compare
+    echo [ERROR] Run BUILD_ONEFILE.cmd without arguments.
     goto :failed
 )
 
 echo.
-echo [1/8] Python runtime - existing system interpreter, no venv
+echo [1/9] Python runtime - existing system interpreter, no venv
 %PY_RUN% "build\preflight.py" python
 if errorlevel 1 goto :failed
 
 echo.
-echo [2/8] Dependencies - install only if missing
+echo [2/9] Dependencies - install only if missing
 %PY_RUN% "build\preflight.py" dependencies
 if errorlevel 1 (
     if /I "%BUILD_NO_INSTALL%"=="1" (
@@ -55,7 +53,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo [3/8] Build/signing preflight and compile validation
+echo [3/9] Build/signing preflight and compile validation
 %PY_RUN% "build\sign_release.py" --check-tools
 if errorlevel 1 goto :failed
 %PY_RUN% -m compileall -q "main.py" "drawing_editor" "build"
@@ -69,7 +67,7 @@ if /I "%BUILD_RUN_TESTS%"=="1" (
 )
 
 echo.
-echo [4/8] Prepare clean STAGING output, retain previous successful release until publishing
+echo [4/9] Prepare clean STAGING output, retain previous successful release until publishing
 echo [INFO] PySide6-only build: PyQt5, PyQt6, PySide2 and optional Matplotlib are excluded.
 if not exist "build\staging" mkdir "build\staging"
 if errorlevel 1 goto :failed
@@ -104,36 +102,36 @@ if not exist "build\staging\Sunrise Drawing Editor.exe" (
 )
 
 echo.
-echo [5/8] Real packaged EXE smoke test BEFORE signing
+echo [5/9] Real packaged EXE smoke test BEFORE signing
 %PY_RUN% "build\smoke_test.py" "build\staging\Sunrise Drawing Editor.exe" --timeout 120
 if errorlevel 1 goto :failed
 
 echo.
-echo [6/8] Sunrise Group Authenticode signing - CMD + native SignTool
+echo [6/9] Sunrise Group Authenticode signing - CMD + native SignTool
 %PY_RUN% "build\sign_release.py" "build\staging\Sunrise Drawing Editor.exe"
 if errorlevel 1 goto :failed
 
 echo.
-echo [7/8] Real packaged EXE smoke test AFTER signing
+echo [7/9] Real packaged EXE smoke test AFTER signing
 %PY_RUN% "build\smoke_test.py" "build\staging\Sunrise Drawing Editor.exe" --timeout 120
 if errorlevel 1 goto :failed
 
 echo.
-echo [8/8] Atomic publish, signature/hash report
+echo [8/9] Audit staged baseline and build/compare all available candidates
+%PY_RUN% "build\build_all.py" "build\staging\Sunrise Drawing Editor.exe"
+if errorlevel 1 goto :failed
+
+echo.
+echo [9/9] Publish signed, smoke-tested baseline only; candidate QA remains separate
 %PY_RUN% "build\publish_release.py" "build\staging\Sunrise Drawing Editor.exe" "dist"
 if errorlevel 1 goto :failed
 
 echo.
-echo [PASS] dist\Sunrise Drawing Editor.exe
+echo [PASS] Baseline output: dist\Sunrise Drawing Editor.exe
+echo [INFO] Candidate statuses and comparison: quality\onefile_selection\r21-*\BUILD_REPORT.json
 if exist "dist\SIGNATURE_STATUS.json" echo [INFO] Trust state: dist\SIGNATURE_STATUS.json
 popd
 exit /b 0
-
-:r20_compare
-%PY_RUN% "build\select_onefile.py" %*
-set "R20_RC=%ERRORLEVEL%"
-popd
-exit /b %R20_RC%
 
 :failed
 echo.
