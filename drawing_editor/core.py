@@ -1123,17 +1123,16 @@ class DrawingDocument:
                 if progress: progress(1.)
             else:
                 width,height,dpi=_export_pixel_dimensions(page, opts)
-                # For large transparent PNGs with trim enabled, avoid the
+                # For large PNGs with trim enabled, avoid the
                 # expensive second PDF raster pass. Reuse exact RGBA stripes
-                # from a bounded disk spool. Reserve space for BOTH the RGBA
+                # from a bounded disk spool. Reserve space for BOTH the RGB(A)
                 # spool and a potentially large final PNG plus safety margin.
                 # If storage is insufficient,
                 # retain the legacy two-pass renderer unchanged.
                 single_pass_crop = False
                 if (opts.fmt == 'png' and opts.crop_margins
-                        and opts.background == 'transparent'
                         and width * height > 12_000_000):
-                    required = width * height * 4
+                    required = width * height * (4 if opts.background == 'transparent' else 3)
                     try:
                         single_pass_crop = (
                             required <= 1024 * 1024 * 1024
@@ -1146,7 +1145,7 @@ class DrawingDocument:
                         save_png_tiled_crop_single_pass(
                             page, stream, width, height, dpi,
                             scratch_dir=target.parent, progress=progress,
-                            cancelled=cancelled)
+                            cancelled=cancelled, transparent=opts.background=='transparent')
                         stream.flush()
                         os.fsync(stream.fileno())
                 else:

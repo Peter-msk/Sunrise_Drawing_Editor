@@ -26,7 +26,7 @@ if not defined PY_RUN (
     goto :failed
 )
 
-rem R21: no options; all available build stages run automatically.
+rem R24: selected LEAN only; no repeated candidate builds.
 if not "%~1"=="" (
     echo [ERROR] Run BUILD_ONEFILE.cmd without arguments.
     goto :failed
@@ -63,7 +63,7 @@ if /I "%BUILD_RUN_TESTS%"=="1" (
     %PY_RUN% -m unittest discover -s tests -v
     if errorlevel 1 goto :failed
 ) else (
-    echo [INFO] Unchanged engine regression results retained; set BUILD_RUN_TESTS=1 to rerun.
+    echo [INFO] Targeted packaged drawing QA is mandatory; full source suite is optional.
 )
 
 echo.
@@ -76,25 +76,12 @@ if exist "build\staging\SIGNATURE_STATUS.json" del /q "build\staging\SIGNATURE_S
 if exist "build\staging\SMOKE_STATUS.json" del /q "build\staging\SMOKE_STATUS.json"
 if exist "build\staging\Sunrise Drawing Editor.exe" goto :failed
 
-%PY_RUN% -m PyInstaller --noconfirm --clean --onefile --windowed --noupx ^
-    --name "Sunrise Drawing Editor" ^
-    --icon "%CD%\assets\app.ico" --add-data "%CD%\assets;assets" ^
-    --hidden-import "ezdxf.addons.drawing.pymupdf" ^
-    --hidden-import "ezdxf.addons.drawing.recorder" ^
-    --exclude-module "PyQt5" ^
-    --exclude-module "PyQt6" ^
-    --exclude-module "PySide2" ^
-    --exclude-module "matplotlib" ^
-    --hidden-import "ezdxf.addons.odafc" ^
-    --exclude-module "PySide6.QtWebEngineCore" ^
-    --exclude-module "PySide6.QtWebEngineWidgets" ^
-    --exclude-module "PySide6.QtWebEngineQuick" ^
-    --exclude-module "PySide6.QtPdf" ^
-    --exclude-module "PySide6.QtPdfWidgets" ^
-    --paths "%CD%" ^
+if exist "build\staging\PLAN.json" del /q "build\staging\PLAN.json"
+if exist "build\staging\FUNCTIONAL_QA.json" del /q "build\staging\FUNCTIONAL_QA.json"
+%PY_RUN% -m PyInstaller --noconfirm --clean ^
     --distpath "%CD%\build\staging" ^
     --workpath "%CD%\build\pyinstaller_work" ^
-    --specpath "%CD%\build\pyinstaller_spec" "%CD%\main.py"
+    "%CD%\build\onefile_lightweight.spec" -- --profile lean --plan "%CD%\build\staging\PLAN.json"
 if errorlevel 1 goto :failed
 if not exist "build\staging\Sunrise Drawing Editor.exe" (
     echo [ERROR] PyInstaller returned success but the EXE does not exist.
@@ -117,18 +104,19 @@ echo [7/9] Real packaged EXE smoke test AFTER signing
 if errorlevel 1 goto :failed
 
 echo.
-echo [8/9] Audit staged baseline and build/compare all available candidates
-%PY_RUN% "build\build_all.py" "build\staging\Sunrise Drawing Editor.exe"
+echo [8/9] Functional QA on actual signed LEAN EXE
+%PY_RUN% "build\verify_lean.py" "build\staging\Sunrise Drawing Editor.exe" "build\staging\FUNCTIONAL_QA.json"
 if errorlevel 1 goto :failed
 
 echo.
-echo [9/9] Publish signed, smoke-tested baseline only; candidate QA remains separate
+echo [9/9] Publish local LEAN EXE only after mandatory packaged functional QA
 %PY_RUN% "build\publish_release.py" "build\staging\Sunrise Drawing Editor.exe" "dist"
 if errorlevel 1 goto :failed
 
 echo.
-echo [PASS] Baseline output: dist\Sunrise Drawing Editor.exe
-echo [INFO] Candidate statuses and comparison: quality\onefile_selection\r23-*\BUILD_REPORT.json
+echo [PASS] Local LEAN output: dist\Sunrise Drawing Editor.exe
+echo [INFO] Functional QA: build\staging\FUNCTIONAL_QA.json
+echo [INFO] Full Windows GUI / DWG / RDP / trusted release QA remains required.
 if exist "dist\SIGNATURE_STATUS.json" echo [INFO] Trust state: dist\SIGNATURE_STATUS.json
 popd
 exit /b 0

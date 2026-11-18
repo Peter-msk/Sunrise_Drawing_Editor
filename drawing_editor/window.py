@@ -328,6 +328,8 @@ class RenderTask(QRunnable):
         try:
             if self.cancel_event is not None and self.cancel_event.is_set():
                 raise RenderCancelled('미리보기 중단됨')
+            if self.mode in ('preview', 'detail'):
+                self.signals.progress.emit(self.mode, self.seq, 1/3)
             if self.mode=='preview':
                 if self._isolated_cad:
                     value=render_isolated('preview',self.path,self.states,self.page,
@@ -361,6 +363,10 @@ class RenderTask(QRunnable):
                 cancelled=self.cancel_event.is_set if self.cancel_event else None
                 value=export_snapshot(self.path,self.states,self.page,self.output,self.options,
                                       progress=progress,cancelled=cancelled)
+            if self.mode in ('preview', 'detail'):
+                if self.cancel_event is not None and self.cancel_event.is_set():
+                    raise RenderCancelled('미리보기 중단됨')
+                self.signals.progress.emit(self.mode, self.seq, 2/3)
             self.signals.success.emit(self.mode,self.seq,value)
         except Exception as exc:
             self.signals.error.emit(self.mode,self.seq,str(exc))
@@ -1824,7 +1830,7 @@ class DrawingWindow(QMainWindow):
         self.cancel_preview_button.show()
         self._preview_cancel=threading.Event()
         self._preview_started=time.monotonic()
-        self.view_status.setText('레이어 미리보기 렌더링 중…')
+        self.view_status.setText('미리보기 0% · 렌더링 대기 (단계 기준)')
         viewport=self.canvas.viewport().size()
         size=preview_raster_size(viewport.width(), viewport.height(),
                                  self.canvas.devicePixelRatioF())
@@ -1868,7 +1874,7 @@ class DrawingWindow(QMainWindow):
         page_pixels = self.canvas.transform().m11() * self.canvas.devicePixelRatioF()
         w=max(64,min(4000,round((clip[2]-clip[0])*page_pixels)))
         h=max(64,min(4000,round((clip[3]-clip[1])*page_pixels)))
-        self.view_status.setText('확대 영역 고해상도 렌더링 중…')
+        self.view_status.setText('확대 영역 0% · 렌더링 대기 (단계 기준)')
         self._submit(RenderTask('detail',self._detail_seq,str(doc.path),doc.states(),doc.page_index,
                                 (w,h),clip=clip,cancel_event=self._detail_cancel,
                                 isolate_pdf=(doc.kind == 'pdf' and bool(doc.layers()))))
@@ -1975,6 +1981,15 @@ class DrawingWindow(QMainWindow):
         (self.export_pool if task.mode in ('batch_export','export') else self.pool).start(task)
 
     def _progress(self,mode,seq,value):
+        if self._closing:
+            return
+        if mode in ('preview', 'detail'):
+            current = (mode == 'preview' and seq == self._preview_seq and self._preview_busy and not self._preview_pending) or (mode == 'detail' and seq == self._detail_seq and self._detail_busy and not self._detail_pending and not self._preview_busy and not self._preview_pending)
+            if current:
+                label = '미리보기' if mode == 'preview' else '확대 영역'
+                phase = '네이티브 렌더 중' if value < .5 else '화면 반영 중'
+                self.view_status.setText(f'{label} {round(value*100)}% · {phase} (단계 기준)')
+            return
         if mode=='export' and seq==self._export_seq:
             pct=max(0,min(100,round(value*100)))
             self.progress.setValue(pct)
@@ -2023,7 +2038,7 @@ class DrawingWindow(QMainWindow):
                     self.canvas.show_png(data,size)
                     doc=self.current_doc()
                     if doc:
-                        self.view_status.setText(f'{doc.kind.upper()} · {len(doc.layers())}개 레이어 · '+
+                        self.view_status.setText(f'100% · {doc.kind.upper()} · {len(doc.layers())}개 레이어 · '+
                                                  ('표시 변경 반영' if doc.dirty else '원본 표시'))
                     self.request_detail()
                 except (DrawingError, RuntimeError, ValueError) as exc:
@@ -2036,7 +2051,7 @@ class DrawingWindow(QMainWindow):
                 try:
                     data,clip=result
                     self.canvas.show_detail(data,clip)
-                    self.view_status.setText('확대 영역 원본에서 고해상도 갱신 완료')
+                    self.view_status.setText('확대 영역 100% · 원본에서 고해상도 갱신 완료')
                 except (DrawingError, RuntimeError, ValueError) as exc:
                     self.view_status.setText('확대 이미지 표시 실패: '+str(exc))
             if self._detail_pending and not self.detail_timer.isActive():
@@ -2133,7 +2148,7 @@ class DrawingWindow(QMainWindow):
                     self.view_status.setText(f'중단 요청 후 {elapsed}초 · 네이티브 작업 응답 대기')
                 else:
                     self.view_status.setText(
-                        f'렌더링 응답 지연 {elapsed}초 · 중단/다시 렌더 또는 창 닫기 가능')
+                        f'{self.view_status.text().split(" · ", 1)[0]} · 렌더 응답 대기 {elapsed}초 · 중단 가능')
 
     def _offer_force_exit(self):
         if self._close_prompted or self._pools_idle():

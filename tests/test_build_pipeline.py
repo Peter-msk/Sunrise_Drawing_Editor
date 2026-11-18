@@ -25,38 +25,30 @@ class BuildPipelineStaticTests(unittest.TestCase):
         self.assertNotIn('powershell.exe', code)
         self.assertNotIn(' -m venv', code)
         self.assertNotIn('.venv\\', code)
-        self.assertIn('--onefile', code)
-        self.assertIn('--windowed', code)
+        self.assertIn('--profile lean', code)
+        self.assertIn('onefile_lightweight.spec', code)
         self.assertIn('build\\sign_release.py', code)
-        self.assertIn('\"%cd%\\assets;assets\"', code)
-        self.assertIn('\"%cd%\\main.py\"', code)
         self.assertEqual(code.count('build\\smoke_test.py'), 2)
+        self.assertNotIn('build\\build_all.py', code)
+        self.assertLess(code.index('build\\verify_lean.py'), code.index('build\\publish_release.py'))
 
     def test_qt_bindings_excluded_from_pyinstaller(self):
-        code = (ROOT / 'BUILD_ONEFILE.cmd').read_text(encoding='utf-8')
-        for binding in ('PyQt5', 'PyQt6', 'PySide2'):
-            self.assertIn(f'--exclude-module "{binding}"', code)
-        self.assertIn('set "QT_API=pyside6"', code)
-        self.assertNotIn('--exclude-module "PySide6"', code)
-        self.assertIn('--exclude-module "matplotlib"', code)
+        code = (ROOT / 'build' / 'onefile_lightweight.spec').read_text(encoding='utf-8')
+        for binding in ('PyQt5', 'PyQt6', 'PySide2', 'matplotlib'):
+            self.assertIn(repr(binding), code)
+        self.assertIn('LEAN_EXCLUDES', code)
+        self.assertIn('console=False', code)
 
     def test_only_required_ezdxf_drawing_backends_collected(self):
-        code = (ROOT / 'BUILD_ONEFILE.cmd').read_text(encoding='utf-8')
-        self.assertNotIn('--collect-submodules "ezdxf.addons.drawing"', code)
+        code = (ROOT / 'build' / 'onefile_lightweight.spec').read_text(encoding='utf-8')
         for module in ('ezdxf.addons.drawing.pymupdf', 'ezdxf.addons.drawing.recorder'):
-            self.assertIn(f'--hidden-import "{module}"', code)
-        self.assertIn('--clean', code)
+            self.assertIn(repr(module), code)
 
     def test_cmd_continuations_for_qt_flags(self):
         code = (ROOT / 'BUILD_ONEFILE.cmd').read_text(encoding='utf-8')
-        lines = code.splitlines()
-        for i, line in enumerate(lines):
-            if '--exclude-module ' in line or '--hidden-import "ezdxf.addons.drawing.' in line:
-                self.assertTrue(line.rstrip().endswith('^'), (i + 1, line))
-        for i, line in enumerate(lines):
-            if '--exclude-module "PyQt5"' in line:
-                self.assertIn('PyQt6', lines[i + 1])
-                self.assertIn('PySide2', lines[i + 2])
+        self.assertIn('--clean', code)
+        self.assertIn('--profile lean --plan', code)
+        self.assertIn('FUNCTIONAL_QA.json', code)
 
     def test_no_powershell_scripts_or_virtualenv_launcher(self):
         self.assertFalse(list(ROOT.rglob('*.ps1')))
