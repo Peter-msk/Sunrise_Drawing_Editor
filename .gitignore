@@ -19,3 +19,8 @@ output/
 
 # Local size-audit evidence
 quality/onefile_size/
+
+# Tracked lightweight spec and candidate-only outputs
+!build/onefile_lightweight.spec
+build/lightwork/
+dist_lightweight/
