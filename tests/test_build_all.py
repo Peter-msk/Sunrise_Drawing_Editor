@@ -8,8 +8,8 @@ from build.build_all import execute, plans
 class UnifiedBuildTests(unittest.TestCase):
     def test_all_modes_and_missing_tools(self):
         jobs = plans(None, False)
-        self.assertEqual([j[0] for j in jobs], ['safe', 'compact', 'upx', 'nuitka'])
-        self.assertEqual([j[1] is not None for j in jobs], [True, True, False, False])
+        self.assertEqual([j[0] for j in jobs], ['safe', 'compact', 'lean', 'upx', 'nuitka'])
+        self.assertEqual([j[1] is not None for j in jobs], [True, True, True, False, False])
         self.assertTrue(all(j[1] for j in plans(Path('upx'), True)))
 
     def test_fresh_candidate_only(self):
@@ -35,7 +35,7 @@ class UnifiedBuildTests(unittest.TestCase):
                 run.return_value.returncode = 1
                 rows, results = execute(root, root / 'base.exe', plans(None, False), None, {})
             self.assertFalse(rows)
-            self.assertEqual([r['status'] for r in results], ['FAILED', 'FAILED', 'NOT RUN', 'NOT RUN'])
+            self.assertEqual([r['status'] for r in results], ['FAILED', 'FAILED', 'FAILED', 'NOT RUN', 'NOT RUN'])
 
     def test_invalid_new_candidate_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:

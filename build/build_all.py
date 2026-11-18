@@ -26,6 +26,7 @@ def plans(upx_dir, nuitka_ready):
     return [
         ('safe', ['build/build_lightweight.py', '--profile', 'safe'], ''),
         ('compact', ['build/build_lightweight.py', '--profile', 'compact'], ''),
+        ('lean', ['build/build_lightweight.py', '--profile', 'lean'], ''),
         ('upx', ['build/build_compression.py', '--backend', 'upx', '--upx-dir', str(upx_dir)] if upx_dir else None, 'UPX not installed/configured'),
         ('nuitka', ['build/build_compression.py', '--backend', 'nuitka'] if nuitka_ready else None, 'Nuitka build packages not installed'),
     ]
@@ -84,7 +85,7 @@ def run_all(baseline):
               'note': 'Candidate size ranking is not functional QA or release approval.'}
     parent = ROOT / 'quality' / 'onefile_selection'
     parent.mkdir(parents=True, exist_ok=True)
-    folder = Path(tempfile.mkdtemp(prefix='r21-', dir=parent))
+    folder = Path(tempfile.mkdtemp(prefix='r22-', dir=parent))
     with (folder / 'BUILD_REPORT.json').open('x', encoding='utf-8') as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
         f.write('\n')

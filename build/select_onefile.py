@@ -16,7 +16,7 @@ GATES = ('pdf_ocg', 'dxf_dwg', 'batch_png_jpg_crop', 'large_dxf_performance',
          'worker_cancel_cleanup', 'light_dark_dpi', 'remote_low_gpu',
          'external_raster', 'github_tls_notice_update', 'update_replace_rollback',
          'startup_memory_antivirus', 'license_review', 'trusted_signer_review')
-MODES = ('safe', 'compact', 'upx', 'nuitka')
+MODES = ('safe', 'compact', 'lean', 'upx', 'nuitka')
 STATUS = 'CANDIDATE_SMOKE_PASSED_FULL_QA_PENDING'
 
 
@@ -103,7 +103,7 @@ def collect(root, baseline):
 
 
 def run_matrix(baseline, upx_dir=None, nuitka=False):
-    commands = [(m, ['build/build_lightweight.py', '--profile', m]) for m in ('safe', 'compact')]
+    commands = [(m, ['build/build_lightweight.py', '--profile', m]) for m in ('safe', 'compact', 'lean')]
     if upx_dir is not None:
         commands.append(('upx', ['build/build_compression.py', '--backend', 'upx', '--upx-dir', str(upx_dir)]))
     if nuitka:

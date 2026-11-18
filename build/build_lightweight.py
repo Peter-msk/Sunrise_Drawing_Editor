@@ -44,7 +44,8 @@ def build(profile, baseline):
     run('build/sign_release.py', exe)
     run('build/smoke_test.py', exe, '--timeout', '120')
     after = audit(exe)
-    removed = json.loads(plan.read_text(encoding='utf-8'))['removed']
+    policy = json.loads(plan.read_text(encoding='utf-8'))
+    removed = policy['removed']
     normalize = lambda name: name.replace('\\', '/').lower()
     present = {normalize(row['name']) for row in after['entries']}
     if any(normalize(row['name']) in present for row in removed):
@@ -54,6 +55,8 @@ def build(profile, baseline):
     delta = before['exe_bytes'] - after['exe_bytes'] if before else None
     report = {'profile': profile, 'baseline': before, 'candidate': after,
               'removed': removed, 'saved_bytes': delta,
+              'policy': policy,
+              'pandas_archive_entries': sorted(n for n in present if n.startswith(('pandas/', 'pandas.libs/', 'pandas-'))),
               'saved_percent': 100 * delta / before['exe_bytes'] if before else None,
               'status': 'CANDIDATE_SMOKE_PASSED_FULL_QA_PENDING'}
     out = ROOT / 'dist_lightweight' / work.name
