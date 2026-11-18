@@ -195,7 +195,8 @@ def stage_update(release, *, cancelled=None, progress=None):
     if not release.automatic or version_tuple(release.version) <= version_tuple(APP_VERSION):
         raise UpdateError('자동 업데이트가 승인되지 않았습니다.')
     expected = RELEASES + '/download/v' + release.version + '/Sunrise%20Drawing%20Editor.exe'
-    if release.download != expected or not HEX.fullmatch(release.sha256):
+    if (release.download != expected or not HEX.fullmatch(release.sha256)
+            or type(release.size) is not int or not 1 <= release.size <= 2_000_000_000):
         raise UpdateError('잘못된 업데이트 메타데이터')
     target = _target(sys.executable)
     current_signer = verified_signer(target)
@@ -230,6 +231,18 @@ def stage_update(release, *, cancelled=None, progress=None):
     except BaseException:
         shutil.rmtree(stage, ignore_errors=True)
         raise
+
+
+def discard_prepared(prepared):
+    """Remove only an unused candidate directory created by this workflow."""
+    if not prepared:
+        return
+    candidate, target, *_ = prepared
+    candidate = Path(candidate)
+    if (candidate.name == 'candidate.exe' and candidate.parent.name.startswith(STAGE_PREFIX)
+            and candidate.parent.parent == Path(target).parent
+            and not (candidate.parent / 'rollback.exe').exists()):
+        shutil.rmtree(candidate.parent, ignore_errors=True)
 
 
 def launch_update(prepared):
@@ -323,6 +336,8 @@ def helper_main(args):
     try:
         return apply_update(args)
     except Exception as exc:
+        if sys.platform != 'win32':
+            return 1
         ctypes.windll.user32.MessageBoxW(None, str(exc) + '\n기존 EXE 또는 임시 롤백 파일을 보존했습니다.',
                                          'Sunrise Drawing Editor 업데이트 실패', 0x10)
         return 1

@@ -37,5 +37,14 @@ class ReleaseFeedTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 parse_release(json.dumps(data))
 
+    def test_automatic_is_explicit_and_defaults_off(self):
+        data = fixture()
+        self.assertFalse(parse_release(json.dumps(data)).automatic)
+        data['automatic_update_available'] = True
+        self.assertTrue(parse_release(json.dumps(data)).automatic)
+        data['automatic_update_available'] = 'true'
+        with self.assertRaises(ValueError):
+            parse_release(json.dumps(data))
+
     def test_notice_id(self):
         self.assertEqual(notice_id(' hello '), notice_id('hello'))

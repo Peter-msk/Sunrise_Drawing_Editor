@@ -149,10 +149,13 @@ class ReleaseFeedController(QObject):
 
     @Slot(object, object)
     def update_finished(self, prepared, error):
-        from .onefile_update import launch_update
+        from .onefile_update import launch_update, discard_prepared
         task, self._update_task = self._update_task, None
         dialog, self._progress_dialog = self._progress_dialog, None
         if dialog:
+            # Closing a finished QProgressDialog can emit canceled. Preserve
+            # the actual user decision before programmatically destroying it.
+            dialog.blockSignals(True)
             dialog.close()
             dialog.deleteLater()
         self.button.setEnabled(True)
@@ -161,10 +164,12 @@ class ReleaseFeedController(QObject):
                 QMessageBox.warning(self.window, '업데이트 중단', error + '\n기존 EXE는 변경되지 않았습니다.')
             return
         if not task or task.cancel.is_set() or self.window._closing or not self.window.isVisible() or self.window._export_busy:
+            discard_prepared(prepared)
             return
         try:
             launch_update(prepared)
         except Exception as exc:
+            discard_prepared(prepared)
             QMessageBox.warning(self.window, '업데이트 중단', str(exc) + '\n기존 EXE는 변경되지 않았습니다.')
             return
         self.window.close()
