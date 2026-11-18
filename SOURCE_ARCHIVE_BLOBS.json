@@ -1,7 +1,7 @@
 {
   "version": 1,
   "algorithm": "git-blob-sha1",
-  "basis": "GitHub Peter-msk/Sunrise_Drawing_Editor Stage14 UI+layer rendering source snapshot 7c88d16cbcc33c7d65de0a2e6bfd6ff62e716573; manifest self excluded",
+  "basis": "Stage14 official source + live public notice/update feed; EXE activation disabled; manifest self excluded",
   "files": {
     ".gitignore": "9c8fba3ffaa2eb00bd2fb0297757aab32e9bf9d3",
     "assets/app.ico": "ed24931cf056861c72d95e40033a8f1740919193",
@@ -262,6 +262,8 @@
     "tests/test_worker_source_identity.py": "a24eda8b75268bad4c7a12a007e5945874436cfb",
     "THIRD_PARTY_NOTICE.md": "7847aa66affc9e0cb0c25ce75de086e84bb89f27",
     "THREE_PASS_DEEP_VALIDATION.md": "bee89a606fc01c9d84eb1022db2320cd51885a1d",
-    "UI_UX_FINAL_AUDIT.md": "c73dc66a43df81e4ca62d79886f1a179ca4aebff"
+    "UI_UX_FINAL_AUDIT.md": "c73dc66a43df81e4ca62d79886f1a179ca4aebff",
+    "latest.json": "8d7993118673cce6e8e4a179f5bd6ee528e222c1",
+    "notice.txt": "554c49177671d0555f3d817ca6ae5a15268c3a57"
   }
 }
