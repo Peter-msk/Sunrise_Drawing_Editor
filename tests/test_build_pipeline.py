@@ -162,6 +162,9 @@ class PublicationSafetyTests(unittest.TestCase):
             self.assertEqual((root / 'dist' / exe.name).read_bytes(), exe.read_bytes())
             self.assertEqual((root / 'dist' / 'SIGNATURE_STATUS.json').exists(), True)
             self.assertIn(sha, (root / 'dist' / 'SHA256.txt').read_text())
+            meta = root / 'dist' / 'release-metadata'
+            self.assertTrue((meta / 'notice.txt').is_file())
+            self.assertEqual(json.loads((meta / 'latest.json').read_text(encoding='utf-8'))['sha256'], sha)
 
     def test_smoke_refuses_tiny_file(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -109,12 +109,15 @@ echo [8/9] Functional QA on actual signed LEAN EXE
 if errorlevel 1 goto :failed
 
 echo.
-echo [9/9] Publish local LEAN EXE only after mandatory packaged functional QA
+echo [9/9] Publish local LEAN EXE and product release metadata after QA
 %PY_RUN% "build\publish_release.py" "build\staging\Sunrise Drawing Editor.exe" "dist"
 if errorlevel 1 goto :failed
 
 echo.
 echo [PASS] Local LEAN output: dist\Sunrise Drawing Editor.exe
+echo [PASS] Release metadata: dist\release-metadata\latest.json
+echo [PASS] Notice: dist\release-metadata\notice.txt
+echo [INFO] Upload only after release approval; live repository feeds stay unchanged.
 echo [INFO] Functional QA: build\staging\FUNCTIONAL_QA.json
 echo [INFO] Full Windows GUI / DWG / RDP / trusted release QA remains required.
 if exist "dist\SIGNATURE_STATUS.json" echo [INFO] Trust state: dist\SIGNATURE_STATUS.json

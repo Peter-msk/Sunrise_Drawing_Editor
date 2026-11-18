@@ -3,15 +3,15 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 from pathlib import Path
-import shutil
 import sys
 
 try:
     from build.sign_release import embedded_signer_certificates, signer_cn
+    from build.release_metadata import publish_bundle
 except ModuleNotFoundError:
     from sign_release import embedded_signer_certificates, signer_cn
+    from release_metadata import publish_bundle
 
 
 def digest(path: Path) -> str:
@@ -44,24 +44,11 @@ def publish(exe: Path, destination: Path) -> None:
                (not thumbprint or cert.fingerprint(hashes.SHA1()).hex().upper() == thumbprint)
                for cert in embedded_signer_certificates(exe)):
         raise RuntimeError('Sunrise Group embedded signing certificate does not match report.')
-    destination.mkdir(parents=True, exist_ok=True)
-    final = destination / exe.name
-    tmp = destination / (exe.name + '.tmp')
-    try:
-        shutil.copyfile(exe, tmp)
-        if digest(tmp) != sha256:
-            raise RuntimeError('Staged EXE / publish EXE hash mismatch.')
-        os.replace(tmp, final)
-        (destination / 'SHA256.txt').write_text(f'{sha256}  {exe.name}\n', encoding='utf-8')
-        report['windows_exe_smoke_pass'] = True  # Only called after both smoke gates.
-        (destination / 'SIGNATURE_STATUS.json').write_text(
-            json.dumps(report, indent=2, ensure_ascii=True) + '\n', encoding='ascii')
-        print('[PASS] Published signed onefile:', final)
-        print('[PASS] SHA256:', sha256)
-        print('[INFO] Signer trust:', report['trust'])
-    finally:
-        if tmp.exists():
-            tmp.unlink()
+    publish_bundle(exe, destination, sha256, report, digest)
+    print('[PASS] Published signed onefile:', destination / exe.name)
+    print('[PASS] SHA256:', sha256)
+    print('[INFO] Signer trust:', report['trust'])
+    print('[PASS] Product release metadata:', destination / 'release-metadata')
 
 
 def main() -> int:

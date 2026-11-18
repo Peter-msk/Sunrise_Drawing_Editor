@@ -29,6 +29,8 @@ Windows 10/11 x64. 소스 실행은 Python 3.11 이상과 `INSTALL_AND_RUN.cmd`,
 
 ## 공지사항 및 업데이트
 
+빌드 성공 시 `dist/release-metadata/latest.json`과 `dist/release-metadata/notice.txt`를 자동 생성합니다. 서명된 EXE의 실제 SHA-256과 바이트 크기를 기록하며, 로컬 빌드는 GitHub 운영 파일을 덮어쓰지 않습니다. 전체 QA 및 신뢰 서명과 실제 Release 업로드 확인 전까지 업데이트 활성화 플래그는 false입니다.
+
 공식 GitHub [notice.txt](https://github.com/Peter-msk/Sunrise_Drawing_Editor/blob/main/notice.txt) 및 [latest.json](https://github.com/Peter-msk/Sunrise_Drawing_Editor/blob/main/latest.json)을 사용합니다. 공지사항과 업데이트는 독립 버튼 및 라이트/다크 테마 팝업으로 확인합니다. 배포된 Windows Onefile EXE는 실행 시 신규 공지와 업데이트를 확인하고, 신규 EXE가 공식 등록된 경우 사용자 선택으로 공식 배포 페이지를 엽니다. 자동 교체 후보 코드도 포함되지만 Windows 실기 검증 및 신뢰 가능한 공식 서명 EXE 등록 전에는 비활성화합니다. 현재 배포용 새 EXE는 등록되지 않았습니다.
 
 ## 피드백
