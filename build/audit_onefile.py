@@ -96,7 +96,17 @@ def audit(exe):
             raise ValueError('Expected a Windows PE executable')
         stream.seek(0)
         sha = hashlib.file_digest(stream, 'sha256').hexdigest()
-    result = inventory(CArchiveReader(str(exe)).toc, before.st_size)
+    reader = CArchiveReader(str(exe))
+    result = inventory(reader.toc, before.st_size)
+    if __package__:
+        from .pyz_policy import audit_pyz
+    else:
+        from pyz_policy import audit_pyz
+    try:
+        result['pyz'] = audit_pyz(reader)
+    except Exception as exc:
+        result['pyz'] = {'status': 'ERROR', 'reason': str(exc)}
+    result['limitations'][0] = 'PYZ detail is nested; do not add it to top-level totals.'
     after = exe.stat()
     if (before.st_size, before.st_mtime_ns, before.st_ino) != (after.st_size, after.st_mtime_ns, after.st_ino):
         raise ValueError('Executable changed during audit')

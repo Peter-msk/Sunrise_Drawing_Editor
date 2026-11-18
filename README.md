@@ -15,7 +15,7 @@
 
 ## 실행 및 배포
 
-Windows 10/11 x64. 소스 실행은 Python 3.11 이상과 `INSTALL_AND_RUN.cmd`, 재실행은 `RUN.cmd`를 사용합니다. `BUILD_ONEFILE.cmd` 하나를 인수 없이 실행하면 기준 Onefile EXE 빌드·서명·기동검사, 용량 분석, SAFE/COMPACT/LEAN 후보 및 설치된 경우 UPX/Nuitka 후보 빌드, 비교 보고서, 기준 EXE 출력까지 순차 진행합니다. 미검증 후보는 별도 폴더에 보관하고 자동 배포하지 않습니다. [통합 빌드 안내](docs/R22_LEAN_ONEFILE.md). PowerShell 및 가상환경을 요구하지 않습니다.
+Windows 10/11 x64. 소스 실행은 Python 3.11 이상과 `INSTALL_AND_RUN.cmd`, 재실행은 `RUN.cmd`를 사용합니다. `BUILD_ONEFILE.cmd` 하나를 인수 없이 실행하면 기준 Onefile EXE 빌드·서명·기동검사, 용량 분석, SAFE/COMPACT/LEAN/PYZ 후보 및 설치된 경우 UPX/Nuitka 후보 빌드, 비교 보고서, 기준 EXE 출력까지 순차 진행합니다. 미검증 후보는 별도 폴더에 보관하고 자동 배포하지 않습니다. [통합 빌드 안내](docs/R23_PYZ_OPTIMIZATION.md). PowerShell 및 가상환경을 요구하지 않습니다.
 
 - [공식 Releases](https://github.com/Peter-msk/Sunrise_Drawing_Editor/releases): 실제 공개된 파일만 다운로드하십시오. 소스 ZIP은 EXE가 아닙니다.
 - 주요 기술: Python, PySide6, PyMuPDF, ezdxf, Pillow.

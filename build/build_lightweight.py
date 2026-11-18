@@ -23,6 +23,7 @@ def run(*args):
 def build(profile, baseline):
     from preflight import check_python, check_dependencies
     from audit_onefile import audit
+    from pyz_policy import compare_pyz, excluded
     from PyInstaller import __version__
     errors = check_python() + check_dependencies()
     if errors or __version__.split('.')[0] != '6':
@@ -44,6 +45,14 @@ def build(profile, baseline):
     run('build/sign_release.py', exe)
     run('build/smoke_test.py', exe, '--timeout', '120')
     after = audit(exe)
+    pyz_comparison = compare_pyz(before.get('pyz') if before else None, after.get('pyz'))
+    if profile == 'pyz':
+        if after.get('pyz', {}).get('status') != 'OK':
+            raise RuntimeError('PYZ module inventory unavailable')
+        if any(excluded(row['name']) for row in after['pyz']['entries']):
+            raise RuntimeError('Excluded Python module still present in PYZ')
+        if before is not None and pyz_comparison['status'] != 'OK':
+            raise RuntimeError('Baseline PYZ comparison unavailable')
     policy = json.loads(plan.read_text(encoding='utf-8'))
     removed = policy['removed']
     normalize = lambda name: name.replace('\\', '/').lower()
@@ -55,7 +64,7 @@ def build(profile, baseline):
     delta = before['exe_bytes'] - after['exe_bytes'] if before else None
     report = {'profile': profile, 'baseline': before, 'candidate': after,
               'removed': removed, 'saved_bytes': delta,
-              'policy': policy,
+              'policy': policy, 'pyz_comparison': pyz_comparison,
               'pandas_archive_entries': sorted(n for n in present if n.startswith(('pandas/', 'pandas.libs/', 'pandas-'))),
               'saved_percent': 100 * delta / before['exe_bytes'] if before else None,
               'status': 'CANDIDATE_SMOKE_PASSED_FULL_QA_PENDING'}

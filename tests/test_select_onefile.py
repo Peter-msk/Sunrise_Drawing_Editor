@@ -16,7 +16,7 @@ class SelectionTests(unittest.TestCase):
         self.baseline = snapshot(self.base)
 
     def fixture(self, mode='safe', size=80, approve=True, trust='TRUSTED_BY_WINDOWS_POLICY'):
-        parent = 'dist_lightweight' if mode in ('safe', 'compact', 'lean') else 'dist_compression'
+        parent = 'dist_lightweight' if mode in ('safe', 'compact', 'lean', 'pyz') else 'dist_compression'
         folder = self.root / parent / mode
         folder.mkdir(parents=True)
         exe = folder / NAME
@@ -76,12 +76,12 @@ class SelectionTests(unittest.TestCase):
         with patch('build.select_onefile.subprocess.run') as run:
             run.return_value.returncode = 1
             result = run_matrix(self.base)
-            self.assertEqual([x['mode'] for x in result], ['safe', 'compact', 'lean'])
+            self.assertEqual([x['mode'] for x in result], ['safe', 'compact', 'lean', 'pyz'])
             self.assertTrue(all(x['returncode'] == 1 for x in result))
             run.reset_mock()
             result = run_matrix(self.base, Path('upx'), True)
-            self.assertEqual([x['mode'] for x in result], ['safe', 'compact', 'lean', 'upx', 'nuitka'])
-            self.assertEqual(run.call_count, 5)
+            self.assertEqual([x['mode'] for x in result], ['safe', 'compact', 'lean', 'pyz', 'upx', 'nuitka'])
+            self.assertEqual(run.call_count, 6)
 
 
 if __name__ == '__main__':

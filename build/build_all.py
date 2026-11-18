@@ -27,6 +27,7 @@ def plans(upx_dir, nuitka_ready):
         ('safe', ['build/build_lightweight.py', '--profile', 'safe'], ''),
         ('compact', ['build/build_lightweight.py', '--profile', 'compact'], ''),
         ('lean', ['build/build_lightweight.py', '--profile', 'lean'], ''),
+        ('pyz', ['build/build_lightweight.py', '--profile', 'pyz'], ''),
         ('upx', ['build/build_compression.py', '--backend', 'upx', '--upx-dir', str(upx_dir)] if upx_dir else None, 'UPX not installed/configured'),
         ('nuitka', ['build/build_compression.py', '--backend', 'nuitka'] if nuitka_ready else None, 'Nuitka build packages not installed'),
     ]
@@ -70,7 +71,8 @@ def execute(root, baseline, jobs, evaluate, evidence):
 
 def run_all(baseline):
     from audit_onefile import audit
-    from select_onefile import decide, evaluate, snapshot
+    from select_onefile import decide, evaluate, snapshot, read_json
+    from pyz_policy import compare_pyz
     evidence = audit(baseline)
     upx = Path(os.environ.get('SUNRISE_UPX_DIR', r'C:\Tools\UPX'))
     upx = upx.resolve() if (upx / 'upx.exe').is_file() else None
@@ -78,14 +80,22 @@ def run_all(baseline):
     rows, results = execute(ROOT, baseline, jobs, evaluate, evidence)
     if snapshot(baseline) != {k: evidence[k] for k in ('exe_bytes', 'sha256')}:
         raise RuntimeError('Staged baseline changed; refusing publication')
+    pairs = {mode: [r for r in rows if r['mode'] == mode] for mode in ('lean', 'pyz')}
+    delta = {'status': 'NOT AVAILABLE'}
+    if all(len(v) == 1 for v in pairs.values()):
+        lean = read_json(ROOT / pairs['lean'][0]['location'] / 'SIZE_COMPARISON.json')['candidate']
+        pyz = read_json(ROOT / pairs['pyz'][0]['location'] / 'SIZE_COMPARISON.json')['candidate']
+        delta = compare_pyz(lean.get('pyz'), pyz.get('pyz'))
+        delta['saved_exe_bytes'] = lean['exe_bytes'] - pyz['exe_bytes']
     report = {'schema_version': 1, 'baseline': evidence, 'build_results': results,
+              'lean_to_pyz': delta,
               'candidates': rows, **decide(rows),
               'matrix_complete': all(r['status'] == 'BUILT_QA_PENDING' for r in results),
               'publication': 'BASELINE_PENDING_EXISTING_SIGNED_PUBLISH_GATE',
               'note': 'Candidate size ranking is not functional QA or release approval.'}
     parent = ROOT / 'quality' / 'onefile_selection'
     parent.mkdir(parents=True, exist_ok=True)
-    folder = Path(tempfile.mkdtemp(prefix='r22-', dir=parent))
+    folder = Path(tempfile.mkdtemp(prefix='r23-', dir=parent))
     with (folder / 'BUILD_REPORT.json').open('x', encoding='utf-8') as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
         f.write('\n')

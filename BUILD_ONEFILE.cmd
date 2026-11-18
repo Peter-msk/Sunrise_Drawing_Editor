@@ -128,7 +128,7 @@ if errorlevel 1 goto :failed
 
 echo.
 echo [PASS] Baseline output: dist\Sunrise Drawing Editor.exe
-echo [INFO] Candidate statuses and comparison: quality\onefile_selection\r22-*\BUILD_REPORT.json
+echo [INFO] Candidate statuses and comparison: quality\onefile_selection\r23-*\BUILD_REPORT.json
 if exist "dist\SIGNATURE_STATUS.json" echo [INFO] Trust state: dist\SIGNATURE_STATUS.json
 popd
 exit /b 0

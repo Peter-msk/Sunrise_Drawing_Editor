@@ -9,6 +9,7 @@ root = Path(SPECPATH).resolve().parent
 sys.path.insert(0, str(root / 'build'))
 from lightweight_policy import PROFILES, filter_toc
 from lean_policy import LEAN_EXCLUDES, prune_qt
+from pyz_policy import PYZ_EXCLUDES
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--profile', choices=PROFILES, required=True)
@@ -24,18 +25,21 @@ a = Analysis(
     excludes=['PyQt5', 'PyQt6', 'PySide2', 'matplotlib',
               'PySide6.QtWebEngineCore', 'PySide6.QtWebEngineWidgets',
               'PySide6.QtWebEngineQuick', 'PySide6.QtPdf', 'PySide6.QtPdfWidgets']
-             + (list(LEAN_EXCLUDES) if args.profile == 'lean' else []),
+             + (list(LEAN_EXCLUDES) if args.profile in ('lean', 'pyz') else [])
+             + (list(PYZ_EXCLUDES) if args.profile == 'pyz' else []),
     noarchive=False, optimize=0,
 )
 a.binaries, removed_binaries = filter_toc(a.binaries, args.profile)
 a.datas, removed_datas = filter_toc(a.datas, args.profile)
 blocked_qt = []
-if args.profile == 'lean':
+if args.profile in ('lean', 'pyz'):
     a.binaries, extra_removed, blocked_qt = prune_qt(a.binaries)
     removed_binaries += extra_removed
 with args.plan.open('x', encoding='utf-8') as report:
     json.dump({'profile': args.profile, 'removed': removed_binaries + removed_datas,
-               'graph_excludes': list(LEAN_EXCLUDES) if args.profile == 'lean' else [],
+               'graph_excludes': (list(LEAN_EXCLUDES) if args.profile in ('lean', 'pyz') else [])
+                                 + (list(PYZ_EXCLUDES) if args.profile == 'pyz' else []),
+               'pure_module_names': sorted(entry[0] for entry in a.pure),
                'dependency_blocked_qt': blocked_qt,
                'note': 'Source bytes are not compressed EXE savings; native import checks do not establish runtime compatibility.'}, report, indent=2)
     report.write('\n')

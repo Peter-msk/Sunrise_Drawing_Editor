@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-PROFILES = ('safe', 'compact', 'lean')
+PROFILES = ('safe', 'compact', 'lean', 'pyz')
 OPTIONAL_IMAGES = frozenset({'qgif.dll', 'qicns.dll', 'qtga.dll', 'qtiff.dll',
                              'qwbmp.dll', 'qwebp.dll'})
 TRANSLATION = re.compile(r'qt(?:base|declarative|multimedia|networkauth|quickcontrols2|serialport|webengine)?_([a-z]{2,3})(?:_[a-z0-9]+)*\.qm$')
@@ -22,7 +22,7 @@ def removal_reason(entry, profile):
         match = TRANSLATION.fullmatch(leaf)
         if match and match.group(1) not in ('ko', 'en'):
             return 'Qt translation outside Korean/English'
-    if profile in ('compact', 'lean') and kind == 'BINARY' and 'pyside6' in src_parts:
+    if profile in ('compact', 'lean', 'pyz') and kind == 'BINARY' and 'pyside6' in src_parts:
         if qt_owned and 'imageformats' in parts and leaf in OPTIONAL_IMAGES:
             return 'Optional Qt image plugin; manual format/preview QA required'
         if leaf == 'opengl32sw.dll' and (qt_owned or len(parts) == 1):
