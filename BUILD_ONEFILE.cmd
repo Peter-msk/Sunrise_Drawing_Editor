@@ -26,6 +26,14 @@ if not defined PY_RUN (
     goto :failed
 )
 
+rem R20: explicit comparison modes; no arguments keep the original build.
+if /I "%~1"=="evaluate" goto :r20_compare
+if /I "%~1"=="compare" goto :r20_compare
+if not "%~1"=="" (
+    echo [ERROR] Use BUILD_ONEFILE.cmd ^| evaluate ^| compare
+    goto :failed
+)
+
 echo.
 echo [1/8] Python runtime - existing system interpreter, no venv
 %PY_RUN% "build\preflight.py" python
@@ -120,6 +128,12 @@ echo [PASS] dist\Sunrise Drawing Editor.exe
 if exist "dist\SIGNATURE_STATUS.json" echo [INFO] Trust state: dist\SIGNATURE_STATUS.json
 popd
 exit /b 0
+
+:r20_compare
+%PY_RUN% "build\select_onefile.py" %*
+set "R20_RC=%ERRORLEVEL%"
+popd
+exit /b %R20_RC%
 
 :failed
 echo.

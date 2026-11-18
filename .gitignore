@@ -29,3 +29,6 @@ dist_lightweight/
 !build/onefile_upx.spec
 build/compression_work/
 dist_compression/
+
+# R20 local comparison and approval evidence
+quality/onefile_selection/
