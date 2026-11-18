@@ -24,10 +24,10 @@ def panel_style(theme):
             font-family:"Malgun Gothic","Noto Sans CJK KR",sans-serif;font-size:12px;
         }}
         QDialog#releaseDialog QLabel, QProgressDialog#releaseProgress QLabel {{color:{p.foreground};}}
-        QLabel#releaseHeading {{font-size:16px;font-weight:700;}}
-        QLabel#releaseSubtitle {{font-size:11px;color:{p.muted};}}
-        QFrame#releaseHeader {{background:{p.panel};border:1px solid {p.border};border-radius:8px;}}
-        QPlainTextEdit#releaseBody {{background:{p.input_background};color:{p.foreground};
+        QDialog#releaseDialog QLabel#releaseHeading {{font-size:16px;font-weight:700;}}
+        QDialog#releaseDialog QLabel#releaseSubtitle {{font-size:11px;color:{p.muted};}}
+        QDialog#releaseDialog QFrame#releaseHeader {{background:{p.panel};border:1px solid {p.border};border-radius:8px;}}
+        QDialog#releaseDialog QPlainTextEdit#releaseBody {{background:{p.input_background};color:{p.foreground};
             border:1px solid {p.border};border-radius:6px;padding:9px;
             selection-background-color:{p.selection};selection-color:{p.foreground};}}
         QDialog#releaseDialog QPushButton, QProgressDialog#releaseProgress QPushButton {{
