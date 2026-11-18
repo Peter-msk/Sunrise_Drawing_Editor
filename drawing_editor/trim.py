@@ -60,7 +60,7 @@ def _union(existing, incoming, y_offset):
 
 
 def find_content_crop(page, full_width: int, full_height: int, *,
-                      progress=None, cancelled=None):
+                      progress=None, cancelled=None, transparent=True):
     """Detect the exact bbox from full-resolution, bounded-memory scanlines.
 
     A small downsampled preview can miss hairline art, fine annotations or
@@ -77,17 +77,18 @@ def find_content_crop(page, full_width: int, full_height: int, *,
     alpha_bbox = color_bbox = None
     partially_clear = False
     for y0, y1, stripe in raster_stripes(page, full_width, full_height,
-                                         transparent=True, progress=progress,
+                                         transparent=transparent, progress=progress,
                                          cancelled=cancelled):
-        image = Image.frombytes('RGBA', (full_width, y1-y0), stripe)
+        image = Image.frombytes('RGBA' if transparent else 'RGB', (full_width, y1-y0), stripe)
         try:
-            alpha = image.getchannel('A')
-            try:
-                if alpha.getextrema()[0] < 255:
-                    partially_clear = True
-                alpha_bbox = _union(alpha_bbox, alpha.getbbox(), y0)
-            finally:
-                alpha.close()
+            if transparent:
+                alpha = image.getchannel('A')
+                try:
+                    if alpha.getextrema()[0] < 255:
+                        partially_clear = True
+                    alpha_bbox = _union(alpha_bbox, alpha.getbbox(), y0)
+                finally:
+                    alpha.close()
             color_bbox = _union(color_bbox, _colored_bbox(image), y0)
         finally:
             image.close()

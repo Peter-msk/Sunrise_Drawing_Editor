@@ -1158,7 +1158,8 @@ class DrawingDocument:
                     # exact scanline pass so even fine details remain intact.
                     crop = (find_content_crop(page, width, height,
                                               progress=(lambda p: progress(p * .5)) if progress else None,
-                                              cancelled=cancelled)
+                                              cancelled=cancelled,
+                                              transparent=opts.background=='transparent')
                             if opts.fmt == 'png' and opts.crop_margins
                             and width * height > 12_000_000 else None)
                     out_width = crop[2] - crop[0] if crop else width

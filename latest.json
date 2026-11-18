@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "app_id": "sunrise_drawing_editor",
+  "app_name": "Sunrise Drawing Editor",
+  "channel": "stable",
+  "platform": "windows-x64",
+  "package_kind": "onefile_exe",
+  "latest_version": "1.0.0",
+  "update_endpoint_configured": false,
+  "official_release": false,
+  "authenticode_required": true,
+  "release_url": "",
+  "download_url": "",
+  "sha256": "",
+  "file_size_bytes": 0,
+  "publisher": "Sunrise Group"
+}
