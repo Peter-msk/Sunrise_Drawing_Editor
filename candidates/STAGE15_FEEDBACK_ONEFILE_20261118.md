@@ -9,3 +9,8 @@ Parent: e29fb82445d0dce4bb6f2e4a707f36b344b4242d (Stage14). Status: source candi
 - Mark hiding not implemented: inspect actual PDF OCG, locked object and attribution terms first; do not bypass locks or alter source.
 - Preserve existing signing/build and no full redundant regression by default. Windows runtime, GUI, PyInstaller and sign checks NOT RUN; actual user source data NOT RUN.
 - No claim of successful release. Run focused tests: python -m unittest discover -s tests -p "test_release_feed.py" -v ; python -m unittest discover -s tests -p "test_feedback_four_sheet_crop.py" -v
+
+## Second source iteration
+
+Added disabled-by-default user-approved Onefile self-replacement candidate. Fixed product release URL, HTTPS redirect allowlist, exact byte count + SHA-256, Windows WinVerifyTrust with actual validated Sunrise Group leaf fingerprint equal to running executable, candidate smoke before handoff, independent PyInstaller process, wait for process exit, same-volume atomic swap, backup and restart failure rollback. No automatic update until `automatic_update_available=true` in validated release metadata after Windows QA. Untrusted self-signing and certificate rollover require manual handling; no trust-store edits. Native Windows execution, real signed binary, restart/rollback, cancellation and cleanup soak are NOT RUN. Temporary rollback remains until user verifies release; automatic stale-stage cleanup is not yet implemented. Prior statement of missing self-replacement describes first iteration only.
+Native API reference: https://learn.microsoft.com/en-us/windows/win32/api/Wintrust/nf-wintrust-winverifytrust ; https://learn.microsoft.com/en-us/windows/win32/api/wintrust/nf-wintrust-wthelpergetprovcertfromchain .

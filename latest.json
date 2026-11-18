@@ -13,5 +13,7 @@
   "download_url": "",
   "sha256": "",
   "file_size_bytes": 0,
-  "publisher": "Sunrise Group"
+  "publisher": "Sunrise Group",
+  "automatic_update_available": false,
+  "update_mode": "user_approved_self_replace"
 }

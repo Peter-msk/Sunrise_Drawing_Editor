@@ -6,6 +6,9 @@ from pathlib import Path
 def main():
     # Frozen onefile worker must bypass QApplication / QWidget construction.
     # The child retains its own MuPDF/ezdxf state and can be terminated safely.
+    if len(sys.argv) > 1 and sys.argv[1] == '--apply-onefile-update':
+        from drawing_editor.onefile_update import helper_main
+        return helper_main(sys.argv[2:])
     if len(sys.argv) > 1 and sys.argv[1] == '--cad-worker':
         from drawing_editor.cad_worker import worker_main
         return worker_main(sys.argv[2:])
@@ -25,6 +28,8 @@ def main():
         app = QApplication([sys.argv[0]])
         assert (Path(__file__).parent / 'assets' / 'app.ico').is_file()
         window = DrawingWindow()
+        from drawing_editor.release_ui import ReleaseFeedController
+        window.release_feed = ReleaseFeedController(window, auto_check=False)
         window.close()
         return 0
     app = QApplication(sys.argv)

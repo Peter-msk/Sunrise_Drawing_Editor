@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 import re
-from urllib.request import Request, urlopen, build_opener, HTTPRedirectHandler
+from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 APP_VERSION = '1.0.0'
 APP_ID = 'sunrise_drawing_editor'
@@ -41,6 +41,8 @@ class Release:
     page: str
     sha256: str
     size: int
+    download: str = ''
+    automatic: bool = False
 
 
 def parse_release(text, current=APP_VERSION):
@@ -65,7 +67,10 @@ def parse_release(text, current=APP_VERSION):
             or not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{64}', digest)
             or type(size) is not int or not 1 <= size <= 2_000_000_000):
         raise ValueError('Invalid release metadata')
-    return Release(version, page, digest, size)
+    automatic = data.get('automatic_update_available', False)
+    if type(automatic) is not bool:
+        raise ValueError('Invalid automatic update flag')
+    return Release(version, page, digest, size, expected_download, automatic)
 
 
 def notice_id(text):
