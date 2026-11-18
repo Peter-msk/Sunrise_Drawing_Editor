@@ -1,4 +1,9 @@
-# Sunrise Drawing Editor | 도면 편집기
+# Sunrise Drawing Editor 1.0.0 | 도면 편집기
+
+**공식 소스 기준본: 1.0.0 (R24) · 2026-11-18**  
+[공식 기준 소스 ZIP](https://github.com/Peter-msk/Sunrise_Drawing_Editor/archive/refs/heads/V1_0_0_SOURCE.zip) · [버전 기록 및 검증 범위](docs/V1_0_0_RELEASE.md)
+
+Windows 배포 EXE는 전체 실기 및 신뢰 서명 검증 후 별도 등록합니다.
 
 **Sunrise Group**의 Windows 도면 이미지 추출 및 레이어 관리 도구입니다. 환경영향평가, 설계·GIS 자료 작성에 필요한 온맵 PDF와 CAD 도면의 레이어를 제어하여 필요한 도면을 간편하게 추출합니다.
 
@@ -10,6 +15,7 @@
 - 레이어 ON/OFF 규칙 저장 및 선택 도면 일괄 적용
 - 선택 도면별 PNG/JPG 이미지 추출, 원본 자동 해상도 또는 사용자 지정 크기/DPI
 - PNG 투명 배경 및 흰 여백 제거, 대용량 분할 출력, 진행률 및 취소
+- 미리보기 단계별 0/33/67/100% 표시, 흰 배경 대형 PNG 단일 래스터 패스
 - 원본 도면 비파괴, 결과 파일 덮어쓰기 방지, 라이트/다크 테마
 - DWG는 ODA File Converter 또는 DWGSUPPORT 지원 LibreCAD 별도 설치 필요
 
