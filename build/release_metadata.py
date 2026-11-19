@@ -8,6 +8,7 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 REPO = 'https://github.com/Peter-msk/Sunrise_Drawing_Editor'
 NAME = 'Sunrise Drawing Editor.exe'
+ASSET_NAME = 'Sunrise.Drawing.Editor.exe'
 
 
 def build_metadata(exe, sha256, signature, *, root=ROOT):
@@ -26,9 +27,9 @@ def build_metadata(exe, sha256, signature, *, root=ROOT):
         raise ValueError('Release metadata input mismatch')
     data = dict(live)
     data.update(latest_version=version, source_version=version,
-                download_file_name=NAME, sha256=sha256, file_size_bytes=exe.stat().st_size,
+                download_file_name=ASSET_NAME, sha256=sha256, file_size_bytes=exe.stat().st_size,
                 release_url=f'{REPO}/releases/tag/v{version}',
-                download_url=f'{REPO}/releases/download/v{version}/Sunrise%20Drawing%20Editor.exe',
+                download_url=f'{REPO}/releases/download/v{version}/{ASSET_NAME}',
                 notice_url=f'https://raw.githubusercontent.com/Peter-msk/Sunrise_Drawing_Editor/main/notice.txt',
                 publisher='Sunrise Group', authenticode_required=True,
                 signature_trust=signature.get('trust', 'UNKNOWN'),

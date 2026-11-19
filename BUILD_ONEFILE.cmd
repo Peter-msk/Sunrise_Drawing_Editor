@@ -66,6 +66,8 @@ if /I "%BUILD_RUN_TESTS%"=="1" (
     if errorlevel 1 goto :failed
     %PY_RUN% "build\test_pe_version.py"
     if errorlevel 1 goto :failed
+    %PY_RUN% "build\test_update_contract.py"
+    if errorlevel 1 goto :failed
 ) else (
     echo [INFO] Targeted packaged drawing QA is mandatory; full source suite is optional.
 )

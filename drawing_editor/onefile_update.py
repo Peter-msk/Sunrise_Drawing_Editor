@@ -20,10 +20,11 @@ from urllib.parse import urlsplit
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 from uuid import UUID
 
-from .release_feed import APP_VERSION, RELEASES, version_tuple
+from .release_feed import (APP_VERSION, LOCAL_EXE_NAME, ASSET_NAME, version_tuple,
+                           validated_download)
 from .control import check_policy, ensure_update_allowed
 
-EXE_NAME = 'Sunrise Drawing Editor.exe'
+EXE_NAME = LOCAL_EXE_NAME
 STAGE_PREFIX = '.sunrise-update-'
 CHUNK = 1024 * 1024
 HEX = re.compile(r'[0-9a-f]{64}')
@@ -185,7 +186,7 @@ def _independent_env():
 
 def _target(path):
     target = Path(path).resolve(strict=True)
-    if target.name.casefold() != EXE_NAME.casefold() or not target.is_file():
+    if target.name.casefold() not in (EXE_NAME.casefold(), ASSET_NAME.casefold()) or not target.is_file():
         raise UpdateError('공식 Onefile 파일명 또는 위치가 아닙니다. 수동 교체가 필요합니다.')
     return target
 
@@ -195,8 +196,11 @@ def stage_update(release, *, cancelled=None, progress=None):
         raise UpdateError('Windows Onefile에서만 자동 업데이트할 수 있습니다.')
     if not release.automatic or version_tuple(release.version) <= version_tuple(APP_VERSION):
         raise UpdateError('자동 업데이트가 승인되지 않았습니다.')
-    expected = RELEASES + '/download/v' + release.version + '/Sunrise%20Drawing%20Editor.exe'
-    if (release.download != expected or not HEX.fullmatch(release.sha256)
+    try:
+        expected = validated_download(release.version, release.download)
+    except ValueError as exc:
+        raise UpdateError('잘못된 업데이트 다운로드 주소') from exc
+    if (not isinstance(release.sha256, str) or not HEX.fullmatch(release.sha256)
             or type(release.size) is not int or not 1 <= release.size <= 2_000_000_000):
         raise UpdateError('잘못된 업데이트 메타데이터')
     ensure_update_allowed(check_policy(), release.version)

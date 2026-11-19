@@ -36,6 +36,24 @@ def version_tuple(value):
     return tuple(map(int, value.split('.')))
 
 
+# GitHub may normalize spaces in uploaded asset names. Keep the exact product
+# repository/tag allowlist, not arbitrary URLs or filenames.
+ASSET_NAME = 'Sunrise.Drawing.Editor.exe'
+LOCAL_EXE_NAME = 'Sunrise Drawing Editor.exe'
+
+
+def release_download_urls(version):
+    version_tuple(version)
+    prefix = RELEASES + '/download/v' + version + '/'
+    return (prefix + ASSET_NAME, prefix + 'Sunrise%20Drawing%20Editor.exe')
+
+
+def validated_download(version, url):
+    if url not in release_download_urls(version):
+        raise ValueError('Invalid release asset URL')
+    return url
+
+
 @dataclass(frozen=True)
 class Release:
     version: str
@@ -60,7 +78,11 @@ def parse_release(text, current=APP_VERSION):
     if not newer or not enabled:
         return None
     page = RELEASES + '/tag/v' + version
-    expected_download = RELEASES + '/download/v' + version + '/Sunrise%20Drawing%20Editor.exe'
+    expected_download = validated_download(version, data.get('download_url'))
+    name = data.get('download_file_name')
+    expected_name = ASSET_NAME if expected_download.endswith('/' + ASSET_NAME) else LOCAL_EXE_NAME
+    if name is not None and name != expected_name:
+        raise ValueError('Release asset filename mismatch')
     digest = data.get('sha256')
     size = data.get('file_size_bytes')
     if (data.get('official_release') is not True or data.get('authenticode_required') is not True
