@@ -10,7 +10,7 @@
   "official_release": false,
   "authenticode_required": true,
   "release_url": "https://github.com/Peter-msk/Sunrise_Drawing_Editor/releases/tag/v1.1.0",
-  "download_url": "https://github.com/Peter-msk/Sunrise_Drawing_Editor/releases/download/v1.1.0/Sunrise%20Drawing%20Editor.exe",
+  "download_url": "https://github.com/Peter-msk/Sunrise_Drawing_Editor/releases/download/v1.1.0/Sunrise.Drawing.Editor.exe",
   "sha256": "6be1ef16d85b388bf5f734bef19c6ab28ac574dc8e11594e8f21f5dd171a41e1",
   "file_size_bytes": 74442984,
   "publisher": "Sunrise Group",
@@ -21,7 +21,7 @@
   "source_status": "official_source",
   "source_baseline": "V1_1_0",
   "source_url": "https://github.com/Peter-msk/Sunrise_Drawing_Editor/tree/V1_1_0",
-  "download_file_name": "Sunrise Drawing Editor.exe",
+  "download_file_name": "Sunrise.Drawing.Editor.exe",
   "notice_url": "https://raw.githubusercontent.com/Peter-msk/Sunrise_Drawing_Editor/main/notice.txt",
   "signature_trust": "SELF_SIGNED_UNTRUSTED_TEST_ONLY"
 }
