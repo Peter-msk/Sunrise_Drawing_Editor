@@ -1,4 +1,4 @@
-"""Product-local signer decision and post-start Onefile cleanup."""
+"""Product-local post-start Onefile cleanup."""
 from __future__ import annotations
 
 import hashlib
@@ -6,15 +6,8 @@ from pathlib import Path
 import re
 import time
 
-UNTRUSTED_ROOT = 0x800B0109
 HEX = re.compile(r'[0-9a-f]{64}')
 STAGE = re.compile(r'\.sunrise-update-[a-z0-9_]{8}')
-
-
-def signer_status_allowed(status, *, self_signed=False):
-    """Only waive CA trust for an otherwise verified, current self-signed leaf."""
-    code = status & 0xffffffff
-    return code == 0 or (code == UNTRUSTED_ROOT and self_signed is True)
 
 
 def _digest(path):

@@ -19,13 +19,11 @@ import time
 from urllib.parse import urlsplit
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 from urllib.error import HTTPError, URLError
-from uuid import UUID
 
 from .release_feed import (APP_VERSION, LOCAL_EXE_NAME, ASSET_NAME, version_tuple,
-                           validated_download)
+                           validated_download, fetch_text, parse_release)
 from .control import check_policy, ensure_update_allowed
 from .version_gate import verify_candidate_version
-from .update_policy import signer_status_allowed, UNTRUSTED_ROOT
 
 EXE_NAME = LOCAL_EXE_NAME
 STAGE_PREFIX = '.sunrise-update-'
@@ -92,155 +90,15 @@ def stream_verified(source, destination, size, sha256, *, cancelled=None, progre
         raise UpdateError('업데이트 파일 크기 또는 SHA-256 불일치')
 
 
-class _TrustFile(ctypes.Structure):
-    _fields_ = [('cbStruct', w.DWORD), ('pcwszFilePath', w.LPCWSTR),
-                ('hFile', w.HANDLE), ('pgKnownSubject', ctypes.c_void_p)]
-
-
-class _TrustData(ctypes.Structure):
-    _fields_ = [('cbStruct', w.DWORD), ('pPolicyCallbackData', ctypes.c_void_p),
-                ('pSIPClientData', ctypes.c_void_p), ('dwUIChoice', w.DWORD),
-                ('fdwRevocationChecks', w.DWORD), ('dwUnionChoice', w.DWORD),
-                ('pFile', ctypes.POINTER(_TrustFile)), ('dwStateAction', w.DWORD),
-                ('hWVTStateData', w.HANDLE), ('pwszURLReference', w.LPWSTR),
-                ('dwProvFlags', w.DWORD), ('dwUIContext', w.DWORD),
-                ('pSignatureSettings', ctypes.c_void_p)]
-
-
-class _CertContext(ctypes.Structure):
-    _fields_ = [('dwCertEncodingType', w.DWORD), ('pbCertEncoded', ctypes.c_void_p),
-                ('cbCertEncoded', w.DWORD), ('pCertInfo', ctypes.c_void_p),
-                ('hCertStore', w.HANDLE)]
-
-
-class _ProviderCertHead(ctypes.Structure):
-    _fields_ = [('cbStruct', w.DWORD), ('pCert', ctypes.POINTER(_CertContext))]
-
-
-class _Blob(ctypes.Structure):
-    _fields_ = [('cbData', w.DWORD), ('pbData', ctypes.c_void_p)]
-
-
-class _Algorithm(ctypes.Structure):
-    _fields_ = [('pszObjId', ctypes.c_char_p), ('Parameters', _Blob)]
-
-
-class _CertInfoHead(ctypes.Structure):
-    _fields_ = [('dwVersion', w.DWORD), ('SerialNumber', _Blob),
-                ('SignatureAlgorithm', _Algorithm), ('Issuer', _Blob),
-                ('NotBefore', w.FILETIME), ('NotAfter', w.FILETIME), ('Subject', _Blob)]
-
-
-class _EnhancedUsage(ctypes.Structure):
-    _fields_ = [('cUsageIdentifier', w.DWORD),
-                ('rgpszUsageIdentifier', ctypes.POINTER(ctypes.c_char_p))]
-
-
-def _valid_self_signed_leaf(crypt, ctx):
-    """Validate self-issued identity, actual self-signature, time and code-signing EKU."""
-    if not ctx.contents.pCertInfo:
-        return False
-    info = ctypes.cast(ctx.contents.pCertInfo, ctypes.POINTER(_CertInfoHead)).contents
-    compare = crypt.CertCompareCertificateName
-    compare.argtypes = [w.DWORD, ctypes.POINTER(_Blob), ctypes.POINTER(_Blob)]
-    compare.restype = w.BOOL
-    if not compare(1, ctypes.byref(info.Issuer), ctypes.byref(info.Subject)):
-        return False
-    verify = crypt.CryptVerifyCertificateSignatureEx
-    verify.argtypes = [ctypes.c_size_t, w.DWORD, w.DWORD, ctypes.c_void_p,
-                       w.DWORD, ctypes.c_void_p, w.DWORD, ctypes.c_void_p]
-    verify.restype = w.BOOL
-    if not verify(0, 0x10001, 2, ctx, 2, ctx, 0, None):
-        return False
-    validity = crypt.CertVerifyTimeValidity
-    validity.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-    validity.restype = w.LONG
-    if validity(None, ctx.contents.pCertInfo) != 0:
-        return False
-    usage = crypt.CertGetEnhancedKeyUsage
-    usage.argtypes = [ctypes.POINTER(_CertContext), w.DWORD, ctypes.c_void_p, ctypes.POINTER(w.DWORD)]
-    usage.restype = w.BOOL
-    length = w.DWORD()
-    # Extension only; no trust-store property can turn an arbitrary cert into a code-signing cert.
-    if not usage(ctx, 2, None, ctypes.byref(length)) or not 1 <= length.value <= 65536:
-        return False
-    buf = ctypes.create_string_buffer(length.value)
-    if not usage(ctx, 2, buf, ctypes.byref(length)):
-        return False
-    ekus = ctypes.cast(buf, ctypes.POINTER(_EnhancedUsage)).contents
-    return (0 < ekus.cUsageIdentifier <= 128 and bool(ekus.rgpszUsageIdentifier)
-            and any(ekus.rgpszUsageIdentifier[i] == b'1.3.6.1.5.5.7.3.3'
-                    for i in range(ekus.cUsageIdentifier)))
-
-
-def verified_signer(path, *, with_status=False):
-    """Verify Authenticode; private Sunrise Group self-signatures need no public CA.
-
-    Only CERT_E_UNTRUSTEDROOT can be waived, after checking the actual leaf's
-    self-signature, validity, code-signing purpose and exact publisher.
-    All callers still pin the same verified leaf and exact package digest.
-    No changes to the Windows trust store or revocation settings.
-    """
-    if sys.platform != 'win32':
-        raise UpdateError('Windows Authenticode 검증 환경이 아닙니다.')
-    dll = ctypes.WinDLL('wintrust', use_last_error=True)
-    crypt = ctypes.WinDLL('crypt32', use_last_error=True)
-    guid = (ctypes.c_ubyte * 16).from_buffer_copy(UUID('00aac56b-cd44-11d0-8cc2-00c04fc295ee').bytes_le)
-    info = _TrustFile()
-    info.cbStruct = ctypes.sizeof(info)
-    info.pcwszFilePath = str(Path(path).resolve(strict=True))
-    data = _TrustData()
-    data.cbStruct = ctypes.sizeof(data)
-    data.dwUIChoice = 2  # WTD_UI_NONE
-    data.fdwRevocationChecks = 1  # WTD_REVOKE_WHOLECHAIN
-    data.dwUnionChoice = 1  # WTD_CHOICE_FILE
-    data.pFile = ctypes.pointer(info)
-    data.dwStateAction = 1  # WTD_STATEACTION_VERIFY
-    data.dwProvFlags = 0x80  # WTD_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT
-    verify = dll.WinVerifyTrust
-    verify.argtypes = [w.HWND, ctypes.c_void_p, ctypes.POINTER(_TrustData)]
-    verify.restype = w.LONG
+def verify_release_authority(previous, expected, sha256, size):
+    """Recheck official HTTPS metadata before the helper replaces the old EXE."""
     try:
-        status = verify(None, ctypes.byref(guid), ctypes.byref(data))
-        if status & 0xffffffff not in (0, UNTRUSTED_ROOT):
-            raise UpdateError(f'Authenticode 무결성/서명 검증 실패: 0x{status & 0xffffffff:08x}')
-        provider = dll.WTHelperProvDataFromStateData
-        provider.argtypes = [w.HANDLE]
-        provider.restype = ctypes.c_void_p
-        signer = dll.WTHelperGetProvSignerFromChain
-        signer.argtypes = [ctypes.c_void_p, w.DWORD, w.BOOL, w.DWORD]
-        signer.restype = ctypes.c_void_p
-        cert = dll.WTHelperGetProvCertFromChain
-        cert.argtypes = [ctypes.c_void_p, w.DWORD]
-        cert.restype = ctypes.POINTER(_ProviderCertHead)
-        prov = provider(data.hWVTStateData)
-        sg = signer(prov, 0, False, 0) if prov else None
-        cp = cert(sg, 0) if sg else None
-        if not cp or not cp.contents.pCert:
-            raise UpdateError('실제 검증된 서명자 인증서가 없습니다.')
-        ctx = cp.contents.pCert
-        name_fn = crypt.CertGetNameStringW
-        name_fn.argtypes = [ctypes.POINTER(_CertContext), w.DWORD, w.DWORD,
-                            ctypes.c_void_p, w.LPWSTR, w.DWORD]
-        name_fn.restype = w.DWORD
-        n = name_fn(ctx, 4, 0, None, None, 0)  # CERT_NAME_SIMPLE_DISPLAY_TYPE
-        if not 1 < n < 1024:
-            raise UpdateError('유효한 게시자 이름이 없습니다.')
-        name = ctypes.create_unicode_buffer(n)
-        name_fn(ctx, 4, 0, None, name, n)
-        if name.value != 'Sunrise Group':
-            raise UpdateError('공식 Sunrise Group 게시자와 일치하지 않습니다.')
-        leaf = ctx.contents
-        if not leaf.pbCertEncoded or not 1 <= leaf.cbCertEncoded <= 65536:
-            raise UpdateError('서명자 인증서 형식 오류')
-        if not signer_status_allowed(status, self_signed=(status != 0 and _valid_self_signed_leaf(crypt, ctx))):
-            raise UpdateError(f'그룹 자체서명 검증 실패: 0x{status & 0xffffffff:08x}')
-        fingerprint = hashlib.sha256(ctypes.string_at(leaf.pbCertEncoded, leaf.cbCertEncoded)).hexdigest()
-        trust = 'TRUSTED_BY_WINDOWS_POLICY' if status == 0 else 'SELF_SIGNED_GROUP_VERIFIED'
-        return (fingerprint, trust) if with_status else fingerprint
-    finally:
-        data.dwStateAction = 2  # WTD_STATEACTION_CLOSE
-        verify(None, ctypes.byref(guid), ctypes.byref(data))
+        release = parse_release(fetch_text('latest.json'), current=previous)
+    except (ValueError, OSError) as exc:
+        raise UpdateError('공식 업데이트 정보 재확인 실패') from exc
+    if (release is None or not release.automatic or release.version != expected
+            or release.sha256 != sha256 or release.size != size):
+        raise UpdateError('공식 업데이트 정보와 신규 EXE 불일치')
 
 
 def report_update_error(exc, stage='업데이트 검증'):
@@ -297,10 +155,6 @@ def stage_update(release, *, cancelled=None, progress=None):
         raise UpdateError('잘못된 업데이트 메타데이터')
     ensure_update_allowed(check_policy(), release.version)
     target = _target(sys.executable)
-    try:
-        current_signer = verified_signer(target)
-    except UpdateError as exc:
-        raise UpdateError('기존 EXE: ' + str(exc)) from exc
     old_sha = digest(target)
     stage = Path(tempfile.mkdtemp(prefix=STAGE_PREFIX, dir=target.parent))
     candidate = stage / 'candidate.exe'
@@ -314,14 +168,10 @@ def stage_update(release, *, cancelled=None, progress=None):
                                 cancelled=cancelled, progress=progress)
                 out.flush()
                 os.fsync(out.fileno())
-        try:
-            candidate_signer = verified_signer(candidate)
-        except UpdateError as exc:
-            raise UpdateError('신규 EXE: ' + str(exc)) from exc
-        if candidate_signer != current_signer:
-            raise UpdateError('기존 EXE와 새 EXE의 검증된 서명 인증서가 다릅니다.')
         if cancelled and cancelled():
             raise UpdateError('업데이트 취소')
+        # Release authenticity follows the pinned HTTPS feed and exact byte digest.
+        # Windows public-CA trust is not a product update condition.
         verify_candidate_version(candidate, release.version, _independent_env())
         if cancelled and cancelled():
             raise UpdateError('업데이트 취소')
@@ -403,8 +253,7 @@ def apply_update(args):
         raise UpdateError('허용되지 않은 업데이트 임시 경로')
     if digest(candidate) != new_sha or digest(target) != old_sha:
         raise UpdateError('실행파일 해시 불일치')
-    if verified_signer(candidate) != verified_signer(target):
-        raise UpdateError('서명자 일치 검증 실패')
+    verify_release_authority(previous, expected, new_sha, candidate.stat().st_size)
     _wait_for_exit(int(pid))
     ensure_update_allowed(check_policy(), expected)
     if digest(target) != old_sha:

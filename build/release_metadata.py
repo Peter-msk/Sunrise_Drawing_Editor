@@ -33,7 +33,7 @@ def build_metadata(exe, sha256, signature, *, root=ROOT):
                 notice_url=f'https://raw.githubusercontent.com/Peter-msk/Sunrise_Drawing_Editor/main/notice.txt',
                 publisher='Sunrise Group', authenticode_required=True,
                 signature_trust=signature.get('trust', 'UNKNOWN'),
-                signature_policy='SAME_VERIFIED_GROUP_SIGNER',
+                signature_policy='GROUP_SIGNED_AT_BUILD_FEED_SHA256',
                 official_release=False, update_endpoint_configured=False,
                 automatic_update_available=False,
                 release_notes=live.get('release_notes', ''))

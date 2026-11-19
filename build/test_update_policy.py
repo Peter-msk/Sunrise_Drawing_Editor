@@ -1,4 +1,4 @@
-"""Offline status-policy and cleanup regressions, no native trust claim."""
+"""Offline confirmed-start cleanup regressions."""
 import hashlib
 from pathlib import Path
 import sys
@@ -7,22 +7,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from drawing_editor.update_policy import signer_status_allowed, cleanup_after_start, UNTRUSTED_ROOT
-
-
-class PolicyTests(unittest.TestCase):
-    def test_trusted(self):
-        self.assertTrue(signer_status_allowed(0))
-
-    def test_only_verified_self_signed_root_exception(self):
-        self.assertFalse(signer_status_allowed(UNTRUSTED_ROOT))
-        self.assertTrue(signer_status_allowed(UNTRUSTED_ROOT, self_signed=True))
-        self.assertTrue(signer_status_allowed(UNTRUSTED_ROOT - 2**32, self_signed=True))
-
-    def test_bad_digest_expired_revoked_unsigned_not_allowed(self):
-        for status in (0x80096010, 0x800B0101, 0x800B010C, 0x800B0100, 0x800B010A):
-            with self.subTest(status=status):
-                self.assertFalse(signer_status_allowed(status, self_signed=True))
+from drawing_editor.update_policy import cleanup_after_start
 
 
 class CleanupTests(unittest.TestCase):

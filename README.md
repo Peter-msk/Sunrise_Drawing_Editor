@@ -63,3 +63,8 @@ Copyright © 2026 Sunrise Group. All rights reserved.
 
 ## v1.0.0 UPDATE_FIX_R02
 Sunrise Group의 자체서명은 공인 CA 신뢰 여부를 필수 조건으로 하지 않는다. WinVerifyTrust의 CERT_E_UNTRUSTEDROOT(0x800B0109)만 정확한 자체서명 인증서의 발급자/주체 일치, 자체 서명 검증, 유효기간, 코드서명 EKU, 게시자 및 동일 leaf 지문을 확인한 후 허용한다. 다른 오류는 차단한다. 다운로드 URL/파일 크기/SHA-256/실제 버전 및 스모크 검증, 중앙제어, 기능검증 게이트 유지. 교체 후 새 GUI가 이벤트 루프에 진입하면 동일 트랜잭션의 검증된 candidate.exe와 rollback.exe만 삭제 시도. 실패·잠금·해시 불일치 시 보존. 오류 UI 및 LOCALAPPDATA\\Sunrise Group\\DrawingEditor\\update-last-error.txt 기록. 신규 순수 Python 정책/파일 정리 시험 10/10 PASS, Windows native/API 및 전체 EXE 업데이트 NOT RUN. 기존 운영 피드/Release는 변경하지 않음. 두 버전을 모두 다시 빌드해야 기존 공인 CA 강제 검사에서 벗어날 수 있다.
+
+
+## 업데이트 정책 보완 R03 (검증 대기)
+
+기존 정책 설명 중 WinVerifyTrust/동일 leaf 강제 판정은 R03에서 대체한다. 그룹 Authenticode 서명은 빌드 시 유지하고 실제 신뢰 상태는 기록한다. 앱 업데이트 및 배포 승인에서 Windows 공인 CA 신뢰/동일 인증서 강제 조건은 제거한다. 고정 HTTPS 제품 피드, SHA-256/크기, 허용된 URL, Control 정책, 버전 프로브, 사전 실행검사, 교체 직전 피드 재검증을 유지한다. 그룹 서명은 빌드 증거이며 런타임에 독립 암호학적 서명 확인을 하는 것은 아니다. 새 GUI 이벤트 루프 진입 뒤 해당 트랜잭션의 candidate/rollback만 정리한다. 정리 실패 시 진단 로그를 남기고 가능한 복구 파일을 보존한다. 기존 릴리즈 및 main 피드는 미변경. R03 Windows 빌드/실행/QA는 NOT RUN.

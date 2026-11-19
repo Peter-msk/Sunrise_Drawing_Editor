@@ -61,10 +61,16 @@ def main():
         from PySide6.QtCore import QTimer
         from threading import Thread
         from drawing_editor.update_policy import cleanup_after_start
+        def cleanup_worker():
+            if not cleanup_after_start(sys.executable, *cleanup):
+                from drawing_editor.onefile_update import report_update_error, UpdateError
+                report_update_error(UpdateError('이전 EXE 정리 미완료; 검증 가능한 롤백 파일 보존'),
+                                    '업데이트 후 정리')
+
         def cleanup_started_update():
             if window.isVisible():
-                Thread(target=cleanup_after_start, args=(sys.executable, *cleanup),
-                       daemon=True, name='sunrise-update-cleanup').start()
+                Thread(target=cleanup_worker, daemon=True,
+                       name='sunrise-update-cleanup').start()
         QTimer.singleShot(0, cleanup_started_update)
     return app.exec()
 

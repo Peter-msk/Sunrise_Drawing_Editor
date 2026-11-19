@@ -14,7 +14,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from drawing_editor.release_feed import (APP_VERSION, APP_ID, ASSET_NAME, RELEASES,
     _NoRedirect, release_download_urls, parse_release, version_tuple)
-from drawing_editor.onefile_update import digest, verified_signer, _independent_env
+from drawing_editor.onefile_update import digest, _independent_env
+from build.sign_release import embedded_signer_certificates, is_code_signing
+from cryptography.hazmat.primitives import hashes
 from build.pe_version import read_version_resource, verify_version_resource
 from build.functional_gate import read_functional_qa
 from drawing_editor.version_gate import verify_candidate_version
@@ -32,9 +34,10 @@ def release_record(version):
     return json.loads(raw)
 
 
-def approved_metadata(data, release, *, version, old_version, sha, size, signature_trust='SELF_SIGNED_GROUP_VERIFIED'):
-    if signature_trust not in ('SELF_SIGNED_GROUP_VERIFIED', 'TRUSTED_BY_WINDOWS_POLICY'):
-        raise ValueError('Unverified group signature')
+def approved_metadata(data, release, *, version, old_version, sha, size, signature_trust):
+    # Preserve the actual build report; never relabel a self-signed EXE as trusted.
+    if signature_trust not in ('SELF_SIGNED_UNTRUSTED_TEST_ONLY', 'TRUSTED_BY_WINDOWS_POLICY'):
+        raise ValueError('Missing supported build signature status')
     if version_tuple(old_version) >= version_tuple(version):
         raise ValueError('Previous version must be lower than target version')
     if (data.get('app_id') != APP_ID or data.get('latest_version') != version
@@ -55,16 +58,29 @@ def approved_metadata(data, release, *, version, old_version, sha, size, signatu
         raise ValueError('Uploaded asset bytes/URL do not match local signed EXE')
     result = dict(data, update_endpoint_configured=True, official_release=True,
                   automatic_update_available=True, authenticode_required=True,
-                  signature_trust=signature_trust, signature_policy='SAME_VERIFIED_GROUP_SIGNER')
+                  signature_trust=signature_trust, signature_policy='GROUP_SIGNED_AT_BUILD_FEED_SHA256')
     parsed = parse_release(json.dumps(result), current=old_version)
     if not parsed or not parsed.automatic or parsed.sha256 != sha:
         raise ValueError('Updater contract rejected approved release')
     return result
 
 
+def read_build_signature(exe, sha):
+    report = json.loads((exe.parent / 'SIGNATURE_STATUS.json').read_text(encoding='utf-8'))
+    thumbprint = report.get('certificate_thumbprint_sha1')
+    if (report.get('sha256') != sha or report.get('subject') != 'CN=Sunrise Group'
+            or report.get('embedded_certificate_match') is not True
+            or report.get('windows_exe_smoke_pass') is not True
+            or not isinstance(thumbprint, str)
+            or not any(is_code_signing(cert) and cert.fingerprint(hashes.SHA1()).hex().upper() == thumbprint
+                       for cert in embedded_signer_certificates(exe))):
+        raise ValueError('Build signature evidence does not match EXE')
+    return report.get('trust')
+
+
 def approve(old, new, metadata, output):
     if sys.platform != 'win32':
-        raise OSError('Approval requires actual Windows Authenticode validation')
+        raise OSError('Approval requires Windows EXE version and runtime validation')
     if output.resolve() == (ROOT / 'latest.json').resolve() or output.resolve() == metadata.resolve():
         raise ValueError('Write a separate approval output, not the live/build feed')
     old = old.resolve(strict=True); new = new.resolve(strict=True)
@@ -72,11 +88,11 @@ def approve(old, new, metadata, output):
         raise ValueError('Previous and target EXEs must be different')
     old_version = read_version_resource(old)['strings']['ProductVersion']
     verify_version_resource(new)
-    old_signer, _ = verified_signer(old, with_status=True)
-    new_signer, signature_trust = verified_signer(new, with_status=True)
-    if old_signer != new_signer:
-        raise ValueError('Previous and target EXEs do not have the same verified group signer')
     old_sha, sha = digest(old), digest(new)
+    for exe, fingerprint in ((old, old_sha), (new, sha)):
+        signature_trust = read_build_signature(exe, fingerprint)
+        if signature_trust not in ('SELF_SIGNED_UNTRUSTED_TEST_ONLY', 'TRUSTED_BY_WINDOWS_POLICY'):
+            raise ValueError('Unsupported build signature evidence')
     for exe, version, fingerprint in ((old, old_version, old_sha), (new, APP_VERSION, sha)):
         read_functional_qa(exe.parent / 'FUNCTIONAL_QA.json', fingerprint)
         verify_candidate_version(exe, version, _independent_env())
