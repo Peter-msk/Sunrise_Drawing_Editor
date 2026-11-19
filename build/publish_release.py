@@ -9,9 +9,11 @@ import sys
 try:
     from build.sign_release import embedded_signer_certificates, signer_cn
     from build.release_metadata import publish_bundle
+    from build.pe_version import expected_version
 except ModuleNotFoundError:
     from sign_release import embedded_signer_certificates, signer_cn
     from release_metadata import publish_bundle
+    from pe_version import expected_version
 
 
 def digest(path: Path) -> str:
@@ -38,6 +40,8 @@ def publish(exe: Path, destination: Path) -> None:
     smoke = json.loads(smoke_path.read_text(encoding='utf-8'))
     if smoke.get('passed') is not True or smoke.get('sha256') != sha256:
         raise RuntimeError('Post-sign EXE smoke test did not match signed EXE hash.')
+    if smoke.get('version_resource') != expected_version():
+        raise RuntimeError('Post-sign Windows version resource attestation missing or mismatched.')
     from cryptography.hazmat.primitives import hashes
     thumbprint = report.get('certificate_thumbprint_sha1')
     if not any(signer_cn(cert) == 'Sunrise Group' and

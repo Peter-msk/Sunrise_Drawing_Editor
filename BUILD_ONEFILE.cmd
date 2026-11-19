@@ -64,6 +64,8 @@ if /I "%BUILD_RUN_TESTS%"=="1" (
     if errorlevel 1 goto :failed
     %PY_RUN% "build\test_release_gate.py"
     if errorlevel 1 goto :failed
+    %PY_RUN% "build\test_pe_version.py"
+    if errorlevel 1 goto :failed
 ) else (
     echo [INFO] Targeted packaged drawing QA is mandatory; full source suite is optional.
 )
@@ -91,7 +93,7 @@ if not exist "build\staging\Sunrise Drawing Editor.exe" (
 )
 
 echo.
-echo [5/9] Real packaged EXE smoke test BEFORE signing
+echo [5/9] Windows version resource and EXE smoke test BEFORE signing
 %PY_RUN% "build\smoke_test.py" "build\staging\Sunrise Drawing Editor.exe" --timeout 120
 if errorlevel 1 goto :failed
 
@@ -101,7 +103,7 @@ echo [6/9] Sunrise Group Authenticode signing - CMD + native SignTool
 if errorlevel 1 goto :failed
 
 echo.
-echo [7/9] Real packaged EXE smoke test AFTER signing
+echo [7/9] Windows version resource and EXE smoke test AFTER signing
 %PY_RUN% "build\smoke_test.py" "build\staging\Sunrise Drawing Editor.exe" --timeout 120
 if errorlevel 1 goto :failed
 
