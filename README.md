@@ -27,6 +27,10 @@ Windows 10/11 x64. 소스 실행은 Python 3.11 이상과 `INSTALL_AND_RUN.cmd`,
 - 주요 기술: Python, PySide6, PyMuPDF, ezdxf, Pillow.
 - 사용법 및 상세 개발 검증 이력: [기존 기술 문서](docs/TECHNICAL_HISTORY.md).
 
+## Sunrise Control 중앙제어
+
+프로그램 시작 시 그룹의 [control.txt](https://github.com/Peter-msk/Sunrise_Control/blob/main/control.txt) schema v1을 확인합니다. 실행 허용/차단/점검, 업데이트 차단 및 최소 버전 필수 업데이트를 적용하며 네트워크 장애 시 유효 캐시와 운영 fallback을 사용합니다. 기존 제품별 공지·업데이트 URL, 서명/해시 검증 및 Onefile 계약은 독립적으로 유지합니다. [연동 문서](docs/V1_0_0_CONTROL_R02.md). 이미 실행한 도면 작업은 중간에 원격 종료하지 않으며 실행 권한은 다음 시작 시, 업데이트 권한은 확인·다운로드·교체 시 재확인합니다.
+
 ## 공지사항 및 업데이트
 
 빌드 성공 시 `dist/release-metadata/latest.json`과 `dist/release-metadata/notice.txt`를 자동 생성합니다. 서명된 EXE의 실제 SHA-256과 바이트 크기를 기록하며, 로컬 빌드는 GitHub 운영 파일을 덮어쓰지 않습니다. 전체 QA 및 신뢰 서명과 실제 Release 업로드 확인 전까지 업데이트 활성화 플래그는 false입니다.

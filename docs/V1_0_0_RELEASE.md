@@ -21,3 +21,6 @@ README, notice.txt, latest.json, SOURCE_ARCHIVE_BLOBS.json을 공식 기준에 �
 
 ## 1.0.0 빌드 메타데이터 보완 R01
 File Manager의 제품별 `dist/release-metadata` 산출 계약과 동일하게 최종 서명·스모크/기능 검증 후 `latest.json`, `notice.txt`를 생성한다. 실제 EXE 파일명, SHA-256, 바이트, 버전 및 예정 GitHub Release URL, 서명 신뢰 상태를 기록한다. 공지는 저장소 원본을 UTF-8로 사용한다. 운영 피드/Control 변경 없이 후보 파일을 출력하며 전체 QA, 신뢰 서명 및 실제 Release 등록 전까지 배포 플래그는 false. 메타데이터 준비 오류 시 이전 EXE 유지, 일반 파일 교체 오류 시 sidecar 복구 후 실패. 전원 장애/동시 빌드 중단의 트랜잭션 복구 보장은 아님. 신규 합성 단위시험 5/5 PASS; 실제 Windows 빌드 NOT RUN. 제품 버전 1.0.0 유지(아직 EXE 미배포), 최초 승인 커밋 V1_0_0_SOURCE는 보존.
+
+## 1.0.0 중앙제어 보완 R02
+Sunrise Control schema v1 실행/업데이트 정책 연동. [상세 계약 및 검증 범위](V1_0_0_CONTROL_R02.md). 제품 버전 1.0.0 유지, 운영 피드 변경 없이 EXE 공식 배포 보류.

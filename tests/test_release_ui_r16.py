@@ -51,10 +51,21 @@ class ReleaseUiRegression(unittest.TestCase):
             fetch.assert_called_once_with('notice.txt')
 
     def test_update_worker_does_not_query_notice(self):
-        with patch('drawing_editor.release_ui.fetch_text', return_value='{}') as fetch:
+        from drawing_editor.control import Policy
+        with patch('drawing_editor.release_ui.check_policy', return_value=Policy()), patch('drawing_editor.release_ui.fetch_text', return_value='{}') as fetch:
             task = FeedTask('update')
             task.run()
             fetch.assert_called_once_with('latest.json')
+
+    def test_blocked_update_does_not_query_product_feed(self):
+        from drawing_editor.control import Policy, ControlDenied
+        with patch('drawing_editor.release_ui.check_policy', return_value=Policy(update='block')), patch('drawing_editor.release_ui.fetch_text') as fetch:
+            task = FeedTask('update')
+            results = []
+            task.signals.ready.connect(lambda *args: results.append(args))
+            task.run()
+            fetch.assert_not_called()
+            self.assertIsInstance(results[0][2], ControlDenied)
 
     def test_both_themes_and_plain_text_popup(self):
         for theme in ('light', 'dark'):

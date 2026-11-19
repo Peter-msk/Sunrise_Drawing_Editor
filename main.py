@@ -18,11 +18,11 @@ def main():
 
     from PySide6.QtWidgets import QApplication
     from PySide6.QtGui import QIcon
-    from drawing_editor.window import DrawingWindow
 
     # Deterministic onefile smoke gate: initialize the packaged Qt / image/CAD
     # dependencies without starting the GUI event loop or contacting a server.
     if '--self-test' in sys.argv:
+        from drawing_editor.window import DrawingWindow
         import fitz, ezdxf
         from PIL import Image
         app = QApplication([sys.argv[0]])
@@ -35,6 +35,13 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName('Sunrise Drawing Editor')
     app.setWindowIcon(QIcon(str(Path(__file__).parent / 'assets' / 'app.ico')))
+    from drawing_editor.control import check_policy
+    policy = check_policy()
+    if policy.blocks_entry or policy.requires_update:
+        from drawing_editor.control_ui import startup_gate
+        if not startup_gate(app, policy):
+            return 0
+    from drawing_editor.window import DrawingWindow
     window = DrawingWindow(sys.argv[1:])
     from drawing_editor.release_ui import ReleaseFeedController
     window.release_feed = ReleaseFeedController(window, auto_check=True)

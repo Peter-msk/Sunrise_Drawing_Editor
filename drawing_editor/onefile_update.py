@@ -21,6 +21,7 @@ from urllib.request import Request, build_opener, HTTPRedirectHandler
 from uuid import UUID
 
 from .release_feed import APP_VERSION, RELEASES, version_tuple
+from .control import check_policy, ensure_update_allowed
 
 EXE_NAME = 'Sunrise Drawing Editor.exe'
 STAGE_PREFIX = '.sunrise-update-'
@@ -198,6 +199,7 @@ def stage_update(release, *, cancelled=None, progress=None):
     if (release.download != expected or not HEX.fullmatch(release.sha256)
             or type(release.size) is not int or not 1 <= release.size <= 2_000_000_000):
         raise UpdateError('잘못된 업데이트 메타데이터')
+    ensure_update_allowed(check_policy(), release.version)
     target = _target(sys.executable)
     current_signer = verified_signer(target)
     old_sha = digest(target)
@@ -298,6 +300,7 @@ def apply_update(args):
     if verified_signer(candidate) != verified_signer(target):
         raise UpdateError('서명자 일치 검증 실패')
     _wait_for_exit(int(pid))
+    ensure_update_allowed(check_policy(), expected)
     if digest(target) != old_sha:
         raise UpdateError('종료 이후 기존 EXE가 변경되었습니다.')
     backup, replacement = stage / 'rollback.exe', stage / 'replacement.exe'

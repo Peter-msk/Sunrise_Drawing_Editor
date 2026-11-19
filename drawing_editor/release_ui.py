@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (QApplication, QDialog, QFrame, QHBoxLayout, QLabe
                                QPlainTextEdit, QProgressDialog, QPushButton, QVBoxLayout)
 from .release_feed import APP_VERSION, GITHUB_MAIN, fetch_text, parse_update_info, notice_id
 from .ui_design import THEMES
+from .control import ControlDenied, check_policy, ensure_update_allowed
 
 FEEDS = {'notice': 'notice.txt', 'update': 'latest.json'}
 
@@ -123,9 +124,16 @@ class FeedTask(QRunnable):
 
     def run(self):
         try:
+            policy = check_policy() if self.kind == 'update' else None
+            if policy is not None:
+                ensure_update_allowed(policy)
             text = fetch_text(FEEDS[self.kind])
             result = text.strip() if self.kind == 'notice' else parse_update_info(text)
+            if policy is not None and result.release is not None:
+                ensure_update_allowed(policy, result.release.version)
             self.signals.ready.emit(self.kind, result, None)
+        except ControlDenied as exc:
+            self.signals.ready.emit(self.kind, None, exc)
         except Exception as exc:
             self.signals.ready.emit(self.kind, None, type(exc).__name__)
 
@@ -235,6 +243,10 @@ class ReleaseFeedController(QObject):
                 self._pending.insert(0, (kind, manual))
                 return
             source = GITHUB_MAIN + FEEDS[kind]
+            if isinstance(error, ControlDenied):
+                if manual:
+                    self._show(kind, '중앙제어 · 업데이트 제한', 'Sunrise Control', str(error))
+                return
             if error:
                 if manual:
                     self._show(kind, '서버 연결 또는 응답 오류', 'GitHub · ' + FEEDS[kind],
@@ -270,6 +282,11 @@ class ReleaseFeedController(QObject):
             if answer == QDialog.DialogCode.Accepted:
                 if automatic:
                     self.start_update(release)
+                    return
+                try:
+                    ensure_update_allowed(check_policy(), release.version)
+                except ControlDenied as exc:
+                    self._show(kind, '중앙제어 · 업데이트 제한', 'Sunrise Control', str(exc))
                     return
                 if not QDesktopServices.openUrl(QUrl(release.page)):
                     self._show(kind, '배포 페이지 오류', 'GitHub Releases', '공식 페이지를 열지 못했습니다.')
