@@ -6,7 +6,7 @@ import json
 import re
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 
-APP_VERSION = '1.0.0'
+APP_VERSION = '1.1.0'
 APP_ID = 'sunrise_drawing_editor'
 ROOT = 'https://raw.githubusercontent.com/Peter-msk/Sunrise_Drawing_Editor/main/'
 GITHUB_MAIN = 'https://github.com/Peter-msk/Sunrise_Drawing_Editor/blob/main/'

@@ -32,3 +32,10 @@ dist_compression/
 
 # R20 local comparison and approval evidence
 quality/onefile_selection/
+
+# Development-only evidence and local build work (not product source)
+/quality/
+/candidates/
+/source_snapshots/
+/build/pyinstaller_work/
+/build/pyinstaller_spec/

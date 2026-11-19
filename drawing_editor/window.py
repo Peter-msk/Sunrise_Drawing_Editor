@@ -6,8 +6,8 @@ import os
 import threading
 import time
 
-from PySide6.QtCore import Qt, QRunnable, QThreadPool, QTimer, QObject, Signal, QSettings, QRectF, QStandardPaths, QSize, QEvent
-from PySide6.QtGui import QColor, QBrush, QPainter, QPixmap, QIcon, QTransform, QAction, QPalette
+from PySide6.QtCore import Qt, QRunnable, QThreadPool, QTimer, QObject, Signal, QSettings, QRectF, QStandardPaths, QSize, QEvent, QUrl
+from PySide6.QtGui import QColor, QBrush, QPainter, QPixmap, QIcon, QTransform, QAction, QPalette, QDesktopServices
 from PySide6.QtWidgets import (
     QMainWindow, QToolBar, QWidget, QLabel, QFrame, QHBoxLayout, QVBoxLayout, QBoxLayout,
     QPushButton, QListWidget, QListWidgetItem, QAbstractItemView, QTreeWidget,
@@ -21,6 +21,8 @@ from .core import (DrawingDocument, DrawingError, RenderCancelled, OutputOptions
                    render_snapshot, preview_snapshot, export_snapshot)
 from .batch import LayerRule, LayerRuleStore, apply_rule, plan_exports
 from .batch_worker import run_batch_exports_isolated
+from .output_location import completed_folder
+from .release_feed import APP_VERSION
 from .icons import icon_file
 from .cad_worker import should_isolate_cad, render_isolated, shutdown_all_workers
 from .state import DrawingState
@@ -419,7 +421,7 @@ class CatalogTask(QRunnable):
 class DrawingWindow(QMainWindow):
     def __init__(self, initial_paths=None):
         super().__init__()
-        self.setWindowTitle('Sunrise Drawing Editor  |  도면 편집기')
+        self.setWindowTitle(f'Sunrise Drawing Editor v{APP_VERSION}  |  도면 편집기')
         self.setWindowIcon(QIcon(str(ASSETS/'app.ico')))
         # Use logical screen coordinates so 150–175% scaling doesn't place
         # the bottom export buttons below the available desktop work area.
@@ -2010,6 +2012,15 @@ class DrawingWindow(QMainWindow):
         self.progress.hide()
         self._sync_actions()
 
+    def _open_export_folder(self, paths, *, errors=(), cancelled=False):
+        folder = completed_folder(paths, errors=errors, cancelled=cancelled)
+        if folder is None:
+            return False
+        try:
+            return bool(QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder))))
+        except (OSError, RuntimeError, ValueError):
+            return False
+
     def _success(self,mode,seq,result):
         self._active_tasks.pop((mode,seq),None)
         if self._closing:
@@ -2057,6 +2068,8 @@ class DrawingWindow(QMainWindow):
             if self._detail_pending and not self.detail_timer.isActive():
                 self.detail_timer.start()
         elif mode=='batch_export':
+            if seq != self._export_seq or not self._export_busy:
+                return
             self._restore_export_ui()
             self.statusBar().showMessage(
                 f'일괄 추출 결과 · 완료 {len(result.completed)}개 · 실패 {len(result.errors)}개'+
@@ -2069,12 +2082,19 @@ class DrawingWindow(QMainWindow):
                      +(f'\n\n실패 항목:\n{failures}' if failures else ''))
             if result.errors:
                 QMessageBox.warning(self,'일괄 이미지 추출 결과',summary)
-            else:
+            elif result.cancelled or not result.completed:
                 QMessageBox.information(self,'일괄 이미지 추출 결과',summary)
+            elif self._open_export_folder(result.completed):
+                self.statusBar().showMessage(f'저장 완료 {len(result.completed)}개 · 저장 폴더를 열었습니다.',15000)
+            else:
+                QMessageBox.information(self,'일괄 이미지 추출 결과',summary+'\n\n저장 폴더를 자동으로 열지 못했습니다.')
         else:
+            if mode != 'export' or seq != self._export_seq or not self._export_busy:
+                return
             self._restore_export_ui()
             self.statusBar().showMessage(f'추출 완료: {result}',12000)
-            QMessageBox.information(self,'이미지 추출 완료',f'레이어 표시 상태로 저장했습니다.\n{result}')
+            if not self._open_export_folder([result]):
+                QMessageBox.information(self,'이미지 추출 완료',f'레이어 표시 상태로 저장했습니다.\n{result}\n\n저장 폴더를 자동으로 열지 못했습니다.')
 
     def _error(self,mode,seq,error):
         self._active_tasks.pop((mode,seq),None)
