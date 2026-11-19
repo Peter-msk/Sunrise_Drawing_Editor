@@ -32,7 +32,9 @@ def release_record(version):
     return json.loads(raw)
 
 
-def approved_metadata(data, release, *, version, old_version, sha, size):
+def approved_metadata(data, release, *, version, old_version, sha, size, signature_trust='SELF_SIGNED_GROUP_VERIFIED'):
+    if signature_trust not in ('SELF_SIGNED_GROUP_VERIFIED', 'TRUSTED_BY_WINDOWS_POLICY'):
+        raise ValueError('Unverified group signature')
     if version_tuple(old_version) >= version_tuple(version):
         raise ValueError('Previous version must be lower than target version')
     if (data.get('app_id') != APP_ID or data.get('latest_version') != version
@@ -53,7 +55,7 @@ def approved_metadata(data, release, *, version, old_version, sha, size):
         raise ValueError('Uploaded asset bytes/URL do not match local signed EXE')
     result = dict(data, update_endpoint_configured=True, official_release=True,
                   automatic_update_available=True, authenticode_required=True,
-                  signature_trust='TRUSTED_BY_WINDOWS_POLICY')
+                  signature_trust=signature_trust, signature_policy='SAME_VERIFIED_GROUP_SIGNER')
     parsed = parse_release(json.dumps(result), current=old_version)
     if not parsed or not parsed.automatic or parsed.sha256 != sha:
         raise ValueError('Updater contract rejected approved release')
@@ -70,8 +72,10 @@ def approve(old, new, metadata, output):
         raise ValueError('Previous and target EXEs must be different')
     old_version = read_version_resource(old)['strings']['ProductVersion']
     verify_version_resource(new)
-    if verified_signer(old) != verified_signer(new):
-        raise ValueError('Previous and target EXEs do not have the same trusted leaf signer')
+    old_signer, _ = verified_signer(old, with_status=True)
+    new_signer, signature_trust = verified_signer(new, with_status=True)
+    if old_signer != new_signer:
+        raise ValueError('Previous and target EXEs do not have the same verified group signer')
     old_sha, sha = digest(old), digest(new)
     for exe, version, fingerprint in ((old, old_version, old_sha), (new, APP_VERSION, sha)):
         read_functional_qa(exe.parent / 'FUNCTIONAL_QA.json', fingerprint)
@@ -84,7 +88,8 @@ def approve(old, new, metadata, output):
             raise ValueError('Signed EXE self-test failed')
     result = approved_metadata(json.loads(metadata.read_text(encoding='utf-8-sig')),
                                release_record(APP_VERSION), version=APP_VERSION,
-                               old_version=old_version, sha=sha, size=new.stat().st_size)
+                               old_version=old_version, sha=sha, size=new.stat().st_size,
+                               signature_trust=signature_trust)
     if digest(old) != old_sha or digest(new) != sha:
         raise ValueError('EXE changed during approval')
     output.parent.mkdir(parents=True, exist_ok=True)

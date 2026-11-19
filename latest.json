@@ -16,9 +16,10 @@
   "publisher": "Sunrise Group",
   "automatic_update_available": false,
   "update_mode": "user_approved_self_replace",
-  "release_notes": "도면 렌더링 진행률, PNG 여백 제거 및 추출 성능 개선. 공지사항 및 업데이트 화면 개선.",
+  "release_notes": "도면 렌더링 진행률, PNG 여백 제거 및 추출 성능 개선. 공지사항 및 업데이트 화면 개선. 그룹 자체서명 업데이트 정책 및 성공 후 이전 EXE 정리, 오류 표시 개선.",
   "source_version": "1.0.0",
   "source_status": "official_source",
   "source_baseline": "V1_0_0_UPDATE_GATE",
-  "source_url": "https://github.com/Peter-msk/Sunrise_Drawing_Editor/tree/V1_0_0_UPDATE_GATE"
+  "source_url": "https://github.com/Peter-msk/Sunrise_Drawing_Editor/tree/V1_0_0_UPDATE_GATE",
+  "signature_policy": "SAME_VERIFIED_GROUP_SIGNER"
 }

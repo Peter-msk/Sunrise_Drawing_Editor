@@ -21,6 +21,12 @@ def main():
         from drawing_editor.batch_worker import worker_main
         return worker_main(sys.argv[2:])
 
+    cleanup = None
+    if len(sys.argv) > 1 and sys.argv[1] == '--update-completed':
+        if len(sys.argv) != 5 or not getattr(sys, 'frozen', False):
+            return 2
+        cleanup = tuple(sys.argv[2:])
+        sys.argv = sys.argv[:1]
     from PySide6.QtWidgets import QApplication
     from PySide6.QtGui import QIcon
 
@@ -51,6 +57,15 @@ def main():
     from drawing_editor.release_ui import ReleaseFeedController
     window.release_feed = ReleaseFeedController(window, auto_check=True)
     window.show()
+    if cleanup is not None:
+        from PySide6.QtCore import QTimer
+        from threading import Thread
+        from drawing_editor.update_policy import cleanup_after_start
+        def cleanup_started_update():
+            if window.isVisible():
+                Thread(target=cleanup_after_start, args=(sys.executable, *cleanup),
+                       daemon=True, name='sunrise-update-cleanup').start()
+        QTimer.singleShot(0, cleanup_started_update)
     return app.exec()
 
 

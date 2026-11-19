@@ -151,13 +151,13 @@ class UpdateTask(QRunnable):
         self.signals = self.Signals()
 
     def run(self):
-        from .onefile_update import stage_update
+        from .onefile_update import stage_update, report_update_error
         try:
             prepared = stage_update(self.release, cancelled=self.cancel.is_set,
                                     progress=lambda n, total: self.signals.progress.emit(min(99, n*99//total)))
             self.signals.done.emit(prepared, None)
         except Exception as exc:
-            self.signals.done.emit(None, str(exc))
+            self.signals.done.emit(None, report_update_error(exc))
 
 
 class ReleaseFeedController(QObject):
@@ -354,7 +354,7 @@ class ReleaseFeedController(QObject):
 
     @Slot(object, object)
     def update_finished(self, prepared, error):
-        from .onefile_update import launch_update, discard_prepared
+        from .onefile_update import launch_update, discard_prepared, report_update_error
         task, self._update_task = self._update_task, None
         dialog, self._progress_dialog = self._progress_dialog, None
         try:
@@ -366,15 +366,15 @@ class ReleaseFeedController(QObject):
                 discard_prepared(prepared)
                 if error and task and not task.cancel.is_set() and self.window.isVisible() and not self.window._closing:
                     self._show('update', '업데이트 중단', 'Sunrise Group',
-                               '업데이트를 완료하지 못했습니다. 기존 실행파일은 보존됩니다. 관리자에게 문의하세요.',
+                               '업데이트를 완료하지 못했습니다. 기존 실행파일은 보존됩니다.\n\n' + str(error),
                                close_label='프로그램 종료')
                 return
             try:
                 launch_update(prepared)
-            except Exception:
+            except Exception as exc:
                 discard_prepared(prepared)
                 self._show('update', '업데이트 중단', 'Sunrise Group',
-                           '업데이트를 시작하지 못했습니다. 기존 실행파일은 보존됩니다. 관리자에게 문의하세요.',
+                           '업데이트를 시작하지 못했습니다. 기존 실행파일은 보존됩니다.\n\n' + report_update_error(exc, '교체 시작'),
                            close_label='프로그램 종료')
         finally:
             self._exit_for_update()

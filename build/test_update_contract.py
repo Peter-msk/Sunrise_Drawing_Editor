@@ -103,7 +103,10 @@ class ContractTests(unittest.TestCase):
             self.assertEqual(d['download_file_name'],ASSET_NAME);self.assertEqual(d['download_url'],release_download_urls(APP_VERSION)[0]);self.assertFalse(d['automatic_update_available'])
     def test_approval_exact_asset(self):
         d=feed('1.1.0');d.update(update_endpoint_configured=False,official_release=False,automatic_update_available=False); a=asset(d); x=approved_metadata(d,a,version='1.1.0',old_version='1.0.0',sha=SHA,size=SIZE)
-        self.assertTrue(x['automatic_update_available']);self.assertFalse(d['automatic_update_available'])
+        self.assertTrue(x['automatic_update_available']);self.assertFalse(d['automatic_update_available']);self.assertEqual(x['signature_trust'],'SELF_SIGNED_GROUP_VERIFIED')
+    def test_approval_rejects_unverified_signature_status(self):
+        d=feed('1.1.0')
+        with self.assertRaises(ValueError):approved_metadata(d,asset(d),version='1.1.0',old_version='1.0.0',sha=SHA,size=SIZE,signature_trust='UNKNOWN')
     def test_approval_rejects_mismatch(self):
         d=feed('1.1.0')
         for field,value in [('digest','sha256:'+'a'*64),('size',SIZE+1),('state','new'),('browser_download_url','https://example.com/a')]:
