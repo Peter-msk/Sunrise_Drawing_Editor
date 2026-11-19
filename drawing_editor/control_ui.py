@@ -1,16 +1,14 @@
 """Startup-only gate using the existing themed release dialog and updater."""
 from pathlib import Path
-import sys
 
-from PySide6.QtCore import QEventLoop, QObject, QSettings, QThreadPool, Qt, QUrl, Slot
-from PySide6.QtGui import QDesktopServices, QIcon
+from PySide6.QtCore import QEventLoop, QObject, QSettings, QThreadPool, Qt, Slot
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QDialog, QProgressDialog, QWidget
 
 from .control import check_policy, ensure_update_allowed
 from .icons import icon_file
 from .release_feed import APP_VERSION, fetch_text, parse_update_info
-from .release_ui import ReleaseDialog, UpdateTask, panel_style
-from .runtime_packaging import is_nuitka_candidate
+from .release_ui import ReleaseDialog, UpdateTask, panel_style, can_apply_update
 
 ASSETS = Path(__file__).resolve().parents[1] / 'assets'
 
@@ -74,13 +72,13 @@ def required_auto_update(host, release):
     if task.cancel.is_set() or receiver.error or not receiver.prepared:
         discard_prepared(receiver.prepared)
         if receiver.error and not task.cancel.is_set():
-            show(host, '필수 업데이트 실패', receiver.error + '\n기존 EXE를 보존했습니다.')
+            show(host, '필수 업데이트 실패', '업데이트를 완료하지 못했습니다. 기존 실행파일을 보존했습니다. 관리자에게 문의하세요.')
         return
     try:
         launch_update(receiver.prepared)
     except Exception as exc:
         discard_prepared(receiver.prepared)
-        show(host, '필수 업데이트 실패', str(exc) + '\n기존 EXE를 보존했습니다.')
+        show(host, '필수 업데이트 실패', '업데이트를 시작하지 못했습니다. 기존 실행파일을 보존했습니다. 관리자에게 문의하세요.')
 
 
 def startup_gate(app, policy):
@@ -107,19 +105,14 @@ def startup_gate(app, policy):
         except Exception:
             show(host, '필수 업데이트 필요', body + '\n\n최소 버전을 충족하는 공식 배포 파일을 확인하지 못했습니다.\n관리자에게 문의하세요.')
             return False
-        automatic = (release.automatic and sys.platform == 'win32'
-                     and bool(getattr(sys, 'frozen', False)) and not is_nuitka_candidate())
-        if show(host, '필수 업데이트 필요', body + '\n\n업데이트 전까지 정상 실행이 제한됩니다.',
-                action='업데이트' if automatic else '공식 배포 페이지 열기'):
-            if automatic:
+        if not can_apply_update(release):
+            show(host, '필수 업데이트 필요', body + '\n\n이 환경에서는 자동 업데이트를 진행할 수 없습니다. 관리자에게 문의하세요.')
+            return False
+        if show(host, '필수 업데이트 필요', body + '\n\n업데이트 전까지 정상 실행이 제한됩니다.', action='업데이트'):
+            try:
                 required_auto_update(host, release)
-            else:
-                try:
-                    ensure_update_allowed(check_policy(), release.version)
-                    if not QDesktopServices.openUrl(QUrl(release.page)):
-                        raise RuntimeError('공식 배포 페이지를 열지 못했습니다.')
-                except Exception as exc:
-                    show(host, '업데이트 제한', str(exc))
+            except Exception:
+                show(host, '필수 업데이트 실패', '업데이트를 시작하지 못했습니다. 관리자에게 문의하세요.')
         return False
     finally:
         host.close()

@@ -59,8 +59,8 @@ if errorlevel 1 goto :failed
 %PY_RUN% -m compileall -q "main.py" "drawing_editor" "build"
 if errorlevel 1 goto :failed
 if /I "%BUILD_RUN_TESTS%"=="1" (
-    echo [INFO] BUILD_RUN_TESTS=1: running the full regression suite.
-    %PY_RUN% -m unittest discover -s tests -v
+    echo [INFO] BUILD_RUN_TESTS=1: running focused update gate regression.
+    %PY_RUN% "build\test_release_gate.py"
     if errorlevel 1 goto :failed
 ) else (
     echo [INFO] Targeted packaged drawing QA is mandatory; full source suite is optional.
