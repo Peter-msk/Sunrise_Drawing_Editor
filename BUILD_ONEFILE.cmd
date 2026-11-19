@@ -62,6 +62,8 @@ if /I "%BUILD_RUN_TESTS%"=="1" (
     echo [INFO] BUILD_RUN_TESTS=1: running focused v1.1.0 regression tests.
     %PY_RUN% -m unittest discover -s build -p "test_v110.py" -v
     if errorlevel 1 goto :failed
+    %PY_RUN% "build\test_release_gate.py"
+    if errorlevel 1 goto :failed
 ) else (
     echo [INFO] Targeted packaged drawing QA is mandatory; full source suite is optional.
 )

@@ -16,7 +16,7 @@
   "publisher": "Sunrise Group",
   "automatic_update_available": false,
   "update_mode": "user_approved_self_replace",
-  "release_notes": "2026-11-19: 이미지 추출 완료 후 저장 폴더 자동 열기, 흰 여백 검사 및 대형 이미지 래스터 버퍼 처리 최적화. Windows 실행파일은 배포 준비 중입니다.\n빌드 산출물 메타데이터: 실제 EXE 해시/용량 기록. 전체 QA, 신뢰 서명 및 GitHub EXE 등록 확인 후 운영 승인 필요.",
+  "release_notes": "이미지 추출 완료 후 저장 폴더 자동 열기 및 대형 이미지 처리 개선. 공지사항 및 업데이트 화면 개선.",
   "source_version": "1.1.0",
   "source_status": "official_source",
   "source_baseline": "V1_1_0",

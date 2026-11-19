@@ -6,15 +6,20 @@ from __future__ import annotations
 
 import sys
 import threading
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Signal, Slot, Qt, QUrl, QSize
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Signal, Slot, Qt, QSize
 from PySide6.QtWidgets import (QApplication, QDialog, QFrame, QHBoxLayout, QLabel,
                                QPlainTextEdit, QProgressDialog, QPushButton, QVBoxLayout)
-from .release_feed import APP_VERSION, GITHUB_MAIN, fetch_text, parse_update_info, notice_id
+from .release_feed import APP_VERSION, fetch_text, parse_update_info, notice_id
 from .ui_design import THEMES
 from .control import ControlDenied, check_policy, ensure_update_allowed
 
 FEEDS = {'notice': 'notice.txt', 'update': 'latest.json'}
+
+
+def can_apply_update(release):
+    from .runtime_packaging import is_nuitka_candidate
+    return (release.automatic and sys.platform == 'win32'
+            and bool(getattr(sys, 'frozen', False)) and not is_nuitka_candidate())
 
 
 def panel_style(theme):
@@ -51,7 +56,7 @@ def panel_style(theme):
 
 class ReleaseDialog(QDialog):
     def __init__(self, window, kind, heading, subtitle, content, *,
-                 accept_label=None, close_label='닫기', source_url=None):
+                 accept_label=None, close_label='닫기'):
         super().__init__(window)
         self.setObjectName('releaseDialog')
         self.setWindowTitle('Sunrise Drawing Editor | ' + ('공지사항' if kind == 'notice' else '업데이트'))
@@ -93,10 +98,6 @@ class ReleaseDialog(QDialog):
         body.setAccessibleName('공지사항 내용' if kind == 'notice' else '업데이트 상세 내용')
         root.addWidget(body, 1)
         footer = QHBoxLayout()
-        if source_url:
-            link = QPushButton('GitHub에서 확인', self)
-            link.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(source_url)))
-            footer.addWidget(link)
         footer.addStretch(1)
         close = QPushButton(close_label, self)
         close.clicked.connect(self.reject)
@@ -169,13 +170,14 @@ class ReleaseFeedController(QObject):
         self._progress_dialog = None
         self._pending = []
         self._manual = False
+        self._mandatory = False
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self._next)
         self.notice_button = QPushButton('공지사항', window)
         self.update_button = QPushButton('업데이트', window)
         for kind, button, tip in (
-            ('notice', self.notice_button, '공식 GitHub 공지사항 확인'),
+            ('notice', self.notice_button, '공식 공지사항 확인'),
             ('update', self.update_button, '현재 버전 ' + APP_VERSION + ' · 공식 업데이트 확인'),
         ):
             button.setObjectName(kind + 'FeedButton')
@@ -187,7 +189,7 @@ class ReleaseFeedController(QObject):
             button.clicked.connect(lambda checked=False, k=kind: self.check(k))
         self.refresh_theme()
         if auto_check:
-            self._pending = [('notice', False), ('update', False)]
+            self._pending = [('update', False), ('notice', False)]
             self._timer.start(150)
 
     def refresh_theme(self):
@@ -202,7 +204,7 @@ class ReleaseFeedController(QObject):
         self.update_button.setEnabled(enabled)
 
     def check(self, kind):
-        if kind not in FEEDS or self.window._closing or self._update_task is not None or self.busy:
+        if kind not in FEEDS or self._mandatory or self.window._closing or self._update_task is not None or self.busy:
             return
         if self.window._export_busy:
             self.window.statusBar().showMessage('추출 완료 후 다시 확인하세요.', 7000)
@@ -214,7 +216,7 @@ class ReleaseFeedController(QObject):
 
     @Slot()
     def _next(self):
-        if self.window._closing or not self.window.isVisible():
+        if self._mandatory or self.window._closing or not self.window.isVisible():
             self._pending.clear()
             return
         if self.busy or self._update_task is not None or not self._pending:
@@ -232,33 +234,45 @@ class ReleaseFeedController(QObject):
     def _show(self, kind, heading, subtitle, content, **kwargs):
         return ReleaseDialog(self.window, kind, heading, subtitle, content, **kwargs).exec()
 
+    def _exit_for_update(self):
+        # The normal closeEvent owns cancellation and worker cleanup. Keep the
+        # editor disabled while a native worker is still draining.
+        self._mandatory = True
+        self._pending.clear()
+        self._timer.stop()
+        self._enable_buttons(False)
+        self.window.setEnabled(False)
+        if not self.window._closing:
+            self.window.close()
+
     @Slot(str, object, object)
     def finished(self, kind, result, error):
         self._task = None
         manual = self._manual
+        if self.window._closing or not self.window.isVisible():
+            self.busy = False
+            return
+        if self.window._export_busy or QApplication.activeModalWidget() is not None:
+            # Keep the confirmed result, rather than re-fetching and possibly
+            # losing a mandatory update decision during an existing export.
+            QTimer.singleShot(500, lambda: self.finished(kind, result, error))
+            return
         try:
-            if self.window._closing or not self.window.isVisible():
-                return
-            if self.window._export_busy or QApplication.activeModalWidget() is not None:
-                self._pending.insert(0, (kind, manual))
-                return
-            source = GITHUB_MAIN + FEEDS[kind]
             if isinstance(error, ControlDenied):
                 if manual:
-                    self._show(kind, '중앙제어 · 업데이트 제한', 'Sunrise Control', str(error))
+                    self._show(kind, '업데이트 제한', 'Sunrise Group', str(error))
                 return
             if error:
                 if manual:
-                    self._show(kind, '서버 연결 또는 응답 오류', 'GitHub · ' + FEEDS[kind],
-                               '공식 정보를 확인하지 못했습니다. 인터넷 연결을 확인한 뒤 다시 시도하세요.\n오류 유형: ' + error,
-                               source_url=source)
+                    self._show(kind, '서버 연결 또는 응답 오류', 'Sunrise Group',
+                               '공식 정보를 확인하지 못했습니다. 인터넷 연결을 확인한 뒤 다시 시도하세요.')
                 return
             if kind == 'notice':
                 if result and (manual or self.window._settings.value('release_notice_seen', '') != notice_id(result)):
-                    self._show(kind, 'Sunrise Group 공지사항', 'GitHub · notice.txt', result, source_url=source)
+                    self._show(kind, 'Sunrise Group 공지사항', 'Sunrise Group', result)
                     self.window._settings.setValue('release_notice_seen', notice_id(result))
                 elif manual:
-                    self._show(kind, '공지사항', 'GitHub · notice.txt', '등록된 공지사항이 없습니다.', source_url=source)
+                    self._show(kind, '공지사항', 'Sunrise Group', '등록된 공지사항이 없습니다.')
                 return
             info = result
             versions = '현재 버전: v' + info.current + '\n서버 버전: v' + info.latest
@@ -267,38 +281,48 @@ class ReleaseFeedController(QObject):
             if release is None:
                 if manual:
                     status = '업데이트 배포 준비 중' if not info.configured else '최신 버전입니다'
-                    self._show(kind, status, 'GitHub · latest.json',
-                               notes + ('\n\n다운로드 가능한 신규 EXE가 등록되지 않았습니다.' if not info.configured else ''),
-                               source_url=source)
+                    self._show(kind, status, 'Sunrise Group',
+                               notes + ('\n\n다운로드 가능한 신규 EXE가 등록되지 않았습니다.' if not info.configured else ''))
                 return
-            from .runtime_packaging import is_nuitka_candidate
-            automatic = (release.automatic and sys.platform == 'win32'
-                         and bool(getattr(sys, 'frozen', False)) and not is_nuitka_candidate())
-            detail = ('서명과 SHA-256을 검증한 뒤 현재 EXE를 교체합니다.' if automatic
-                      else '공식 배포 페이지에서 서명된 Onefile EXE를 확인하세요.')
-            answer = self._show(kind, '신규 업데이트가 있습니다', 'GitHub · latest.json',
-                                notes + '\n\n' + detail,
-                                accept_label='업데이트' if automatic else '업데이트 페이지 열기', close_label='프로그램 종료')
-            if answer == QDialog.DialogCode.Accepted:
-                if automatic:
-                    self.start_update(release)
-                    return
-                try:
-                    ensure_update_allowed(check_policy(), release.version)
-                except ControlDenied as exc:
-                    self._show(kind, '중앙제어 · 업데이트 제한', 'Sunrise Control', str(exc))
-                    return
-                if not QDesktopServices.openUrl(QUrl(release.page)):
-                    self._show(kind, '배포 페이지 오류', 'GitHub Releases', '공식 페이지를 열지 못했습니다.')
-                    return
+            # A validated newer publication is mandatory even under update=allow.
+            # No browser route, and no return to the editor after rejection.
+            self._mandatory = True
             self._pending.clear()
-            self.window.close()
+            automatic = can_apply_update(release)
+            detail = ('업데이트 전까지 프로그램을 사용할 수 없습니다.' if automatic
+                      else '이 환경에서는 자동 업데이트를 진행할 수 없습니다. 관리자에게 문의하세요.')
+            answer = self._show(kind, '신규 업데이트가 있습니다', 'Sunrise Group',
+                                notes + '\n\n' + detail,
+                                accept_label='업데이트' if automatic else None, close_label='프로그램 종료')
+            if automatic and answer == QDialog.DialogCode.Accepted:
+                try:
+                    self.start_update(release)
+                except Exception:
+                    self._show(kind, '업데이트 중단', 'Sunrise Group',
+                               '업데이트를 시작하지 못했습니다. 기존 실행파일은 보존됩니다. 관리자에게 문의하세요.',
+                               close_label='프로그램 종료')
         finally:
             self.busy = False
-            if self._update_task is None:
+            if self._mandatory:
+                if self._update_task is None:
+                    self._exit_for_update()
+            elif self._update_task is None and not self.window._closing:
                 self._enable_buttons(True)
-                if self._pending and not self.window._closing:
+                if self._pending:
                     self._timer.start(1000)
+
+    @Slot()
+    def _cancel_update(self):
+        if self._update_task is not None:
+            self._update_task.cancel.set()
+            # QProgressDialog hides itself on cancellation. Do not expose an
+            # interactive editor while the worker is cleaning its staged file.
+            self.window.setEnabled(False)
+
+    @Slot(int)
+    def _update_progress(self, value):
+        if self._update_task is not None and not self._update_task.cancel.is_set():
+            self._progress_dialog.setValue(value)
 
     def start_update(self, release):
         self._enable_buttons(False)
@@ -314,34 +338,43 @@ class ReleaseFeedController(QObject):
         self._progress_dialog = dialog
         task = UpdateTask(release)
         self._update_task = task
-        task.signals.progress.connect(dialog.setValue, Qt.ConnectionType.QueuedConnection)
+        task.signals.progress.connect(self._update_progress, Qt.ConnectionType.QueuedConnection)
         task.signals.done.connect(self.update_finished, Qt.ConnectionType.QueuedConnection)
-        dialog.canceled.connect(task.cancel.set)
-        QThreadPool.globalInstance().start(task)
-        dialog.show()
+        dialog.canceled.connect(self._cancel_update)
+        try:
+            dialog.show()
+            QThreadPool.globalInstance().start(task)
+        except Exception:
+            self._update_task = None
+            self._progress_dialog = None
+            dialog.blockSignals(True)
+            dialog.close()
+            dialog.deleteLater()
+            raise
 
     @Slot(object, object)
     def update_finished(self, prepared, error):
         from .onefile_update import launch_update, discard_prepared
         task, self._update_task = self._update_task, None
         dialog, self._progress_dialog = self._progress_dialog, None
-        if dialog:
-            dialog.blockSignals(True)
-            dialog.close()
-            dialog.deleteLater()
-        self._enable_buttons(True)
-        if error:
-            if self.window.isVisible() and not self.window._closing:
-                self._show('update', '업데이트 중단', '기존 EXE 보존', error + '\n기존 EXE는 변경되지 않았습니다.')
-            return
-        if not task or task.cancel.is_set() or self.window._closing or not self.window.isVisible() or self.window._export_busy:
-            discard_prepared(prepared)
-            return
         try:
-            launch_update(prepared)
-        except Exception as exc:
-            discard_prepared(prepared)
-            self._show('update', '업데이트 중단', '기존 EXE 보존', str(exc) + '\n기존 EXE는 변경되지 않았습니다.')
-            return
-        self._pending.clear()
-        self.window.close()
+            if dialog:
+                dialog.blockSignals(True)
+                dialog.close()
+                dialog.deleteLater()
+            if error or not prepared or not task or task.cancel.is_set() or self.window._closing or not self.window.isVisible() or self.window._export_busy:
+                discard_prepared(prepared)
+                if error and task and not task.cancel.is_set() and self.window.isVisible() and not self.window._closing:
+                    self._show('update', '업데이트 중단', 'Sunrise Group',
+                               '업데이트를 완료하지 못했습니다. 기존 실행파일은 보존됩니다. 관리자에게 문의하세요.',
+                               close_label='프로그램 종료')
+                return
+            try:
+                launch_update(prepared)
+            except Exception:
+                discard_prepared(prepared)
+                self._show('update', '업데이트 중단', 'Sunrise Group',
+                           '업데이트를 시작하지 못했습니다. 기존 실행파일은 보존됩니다. 관리자에게 문의하세요.',
+                           close_label='프로그램 종료')
+        finally:
+            self._exit_for_update()

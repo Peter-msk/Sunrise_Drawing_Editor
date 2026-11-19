@@ -34,7 +34,7 @@ def build_metadata(exe, sha256, signature, *, root=ROOT):
                 signature_trust=signature.get('trust', 'UNKNOWN'),
                 official_release=False, update_endpoint_configured=False,
                 automatic_update_available=False,
-                release_notes=live.get('release_notes', '') + '\n빌드 산출물 메타데이터: 실제 EXE 해시/용량 기록. 전체 QA, 신뢰 서명 및 GitHub EXE 등록 확인 후 운영 승인 필요.')
+                release_notes=live.get('release_notes', ''))
     return {'latest.json': (json.dumps(data, ensure_ascii=False, indent=2) + '\n').encode('utf-8'),
             'notice.txt': (notice + '\n').encode('utf-8')}
 
