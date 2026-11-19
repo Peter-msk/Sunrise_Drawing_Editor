@@ -60,3 +60,6 @@ Copyright © 2026 Sunrise Group. All rights reserved.
 
 ## 1.1.0 전체 정상화 R01 후보
 기존 제품 기능과 버전 유지. 실제 패키지 기능검증 보고서의 EXE SHA-256 일치/필수검사 확인을 배포 단계에서 강제하며 dist에 함께 보관. 업데이트 후보는 GUI 시작 전 정확한 버전·프로토콜 응답을 확인하고, 배포 승인 도구는 구/신 EXE 각각의 기능검증 및 프로토콜 검증을 요구함. 새 판정 단위시험 14/14 PASS(공통 모듈/합성 데이터), 실제 control.py/release_feed.py 해시 일치 확인 후 버전별 정책·공지·업데이트 오프라인 시험 12/12 PASS. PyMuPDF 직접 OCG 합성 시험 4/4 PASS(전체 앱 경로 아님). 실제 Windows EXE 빌드/신뢰 서명/1.0.0→1.1.0 실기/중앙제어 UI 및 실물 도면 검증 NOT RUN. 기존 Release 태그·바이너리·main 운영 공지/업데이트 및 Control 설정을 변경하지 않음. 정상화 후보는 검증 후 공개 배포.
+
+## v1.1.0 UPDATE_FIX_R02
+Sunrise Group의 자체서명은 공인 CA 신뢰 여부를 필수 조건으로 하지 않는다. WinVerifyTrust의 CERT_E_UNTRUSTEDROOT(0x800B0109)만 정확한 자체서명 인증서의 발급자/주체 일치, 자체 서명 검증, 유효기간, 코드서명 EKU, 게시자 및 동일 leaf 지문을 확인한 후 허용한다. 다른 오류는 차단한다. 다운로드 URL/파일 크기/SHA-256/실제 버전 및 스모크 검증, 중앙제어, 기능검증 게이트 유지. 교체 후 새 GUI가 이벤트 루프에 진입하면 동일 트랜잭션의 검증된 candidate.exe와 rollback.exe만 삭제 시도. 실패·잠금·해시 불일치 시 보존. 오류 UI 및 LOCALAPPDATA\\Sunrise Group\\DrawingEditor\\update-last-error.txt 기록. 신규 순수 Python 정책/파일 정리 시험 10/10 PASS, Windows native/API 및 전체 EXE 업데이트 NOT RUN. 기존 운영 피드/Release는 변경하지 않음. 두 버전을 모두 다시 빌드해야 기존 공인 CA 강제 검사에서 벗어날 수 있다.

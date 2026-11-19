@@ -47,7 +47,7 @@ class UpdateWait(QObject):
 
 
 def required_auto_update(host, release):
-    from .onefile_update import discard_prepared, launch_update
+    from .onefile_update import discard_prepared, launch_update, report_update_error
     dialog = QProgressDialog('Onefile 다운로드 및 검증 중…', '취소', 0, 100, host)
     dialog.setObjectName('releaseProgress')
     dialog.setStyleSheet(panel_style(host._theme))
@@ -72,13 +72,13 @@ def required_auto_update(host, release):
     if task.cancel.is_set() or receiver.error or not receiver.prepared:
         discard_prepared(receiver.prepared)
         if receiver.error and not task.cancel.is_set():
-            show(host, '필수 업데이트 실패', '업데이트를 완료하지 못했습니다. 기존 실행파일을 보존했습니다. 관리자에게 문의하세요.')
+            show(host, '필수 업데이트 실패', '업데이트를 완료하지 못했습니다. 기존 실행파일을 보존했습니다.\n\n' + str(receiver.error))
         return
     try:
         launch_update(receiver.prepared)
     except Exception as exc:
         discard_prepared(receiver.prepared)
-        show(host, '필수 업데이트 실패', '업데이트를 시작하지 못했습니다. 기존 실행파일을 보존했습니다. 관리자에게 문의하세요.')
+        show(host, '필수 업데이트 실패', '업데이트를 시작하지 못했습니다. 기존 실행파일을 보존했습니다.\n\n' + report_update_error(exc, '필수 업데이트 교체 시작'))
 
 
 def startup_gate(app, policy):

@@ -16,12 +16,13 @@
   "publisher": "Sunrise Group",
   "automatic_update_available": false,
   "update_mode": "user_approved_self_replace",
-  "release_notes": "이미지 추출 완료 후 저장 폴더 자동 열기 및 대형 이미지 처리 개선. 공지사항 및 업데이트 화면 개선.",
+  "release_notes": "이미지 추출 완료 후 저장 폴더 자동 열기 및 대형 이미지 처리 개선. 공지사항 및 업데이트 화면 개선. 그룹 자체서명 업데이트 정책 및 성공 후 이전 EXE 정리, 오류 표시 개선.",
   "source_version": "1.1.0",
   "source_status": "official_source",
   "source_baseline": "V1_1_0",
   "source_url": "https://github.com/Peter-msk/Sunrise_Drawing_Editor/tree/V1_1_0",
   "download_file_name": "Sunrise.Drawing.Editor.exe",
   "notice_url": "https://raw.githubusercontent.com/Peter-msk/Sunrise_Drawing_Editor/main/notice.txt",
-  "signature_trust": "SELF_SIGNED_UNTRUSTED_TEST_ONLY"
+  "signature_trust": "SELF_SIGNED_UNTRUSTED_TEST_ONLY",
+  "signature_policy": "SAME_VERIFIED_GROUP_SIGNER"
 }
