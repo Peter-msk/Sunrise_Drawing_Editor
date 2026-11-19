@@ -116,6 +116,13 @@ def exercise(exe, root, worker=run_batch):
 def verify(exe):
     exe = exe.resolve(strict=True)
     before = digest(exe)
+    # A distinct protocol return code prevents old binaries accepting unknown CLI arguments.
+    from pe_version import expected_version
+    version = expected_version()['strings']['ProductVersion']
+    result = subprocess.run([str(exe), '--verify-update-version', version],
+                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL, timeout=120)
+    require(result.returncode == 42, 'Packaged executable version protocol failed')
     with tempfile.TemporaryDirectory(prefix='sunrise-r24-qa-') as tmp:
         passed = exercise(exe, Path(tmp))
     require(digest(exe) == before, 'EXE changed during verification')

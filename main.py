@@ -4,6 +4,11 @@ from pathlib import Path
 
 
 def main():
+    # Candidate update version handshake must never initialize Qt or contact servers.
+    if len(sys.argv) > 1 and sys.argv[1] == '--verify-update-version':
+        from drawing_editor.release_feed import APP_VERSION
+        from drawing_editor.version_gate import version_probe_exit
+        return version_probe_exit(sys.argv, APP_VERSION)
     # Frozen onefile worker must bypass QApplication / QWidget construction.
     # The child retains its own MuPDF/ezdxf state and can be terminated safely.
     if len(sys.argv) > 1 and sys.argv[1] == '--apply-onefile-update':
