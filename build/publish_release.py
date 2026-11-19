@@ -10,10 +10,12 @@ try:
     from build.sign_release import embedded_signer_certificates, signer_cn
     from build.release_metadata import publish_bundle
     from build.pe_version import expected_version
+    from build.functional_gate import read_functional_qa
 except ModuleNotFoundError:
     from sign_release import embedded_signer_certificates, signer_cn
     from release_metadata import publish_bundle
     from pe_version import expected_version
+    from functional_gate import read_functional_qa
 
 
 def digest(path: Path) -> str:
@@ -42,13 +44,14 @@ def publish(exe: Path, destination: Path) -> None:
         raise RuntimeError('Post-sign EXE smoke test did not match signed EXE hash.')
     if smoke.get('version_resource') != expected_version():
         raise RuntimeError('Post-sign Windows version resource attestation missing or mismatched.')
+    functional_qa = read_functional_qa(exe.parent / 'FUNCTIONAL_QA.json', sha256)
     from cryptography.hazmat.primitives import hashes
     thumbprint = report.get('certificate_thumbprint_sha1')
     if not any(signer_cn(cert) == 'Sunrise Group' and
                (not thumbprint or cert.fingerprint(hashes.SHA1()).hex().upper() == thumbprint)
                for cert in embedded_signer_certificates(exe)):
         raise RuntimeError('Sunrise Group embedded signing certificate does not match report.')
-    publish_bundle(exe, destination, sha256, report, digest)
+    publish_bundle(exe, destination, sha256, report, digest, functional_qa=functional_qa)
     print('[PASS] Published signed onefile:', destination / exe.name)
     print('[PASS] SHA256:', sha256)
     print('[INFO] Signer trust:', report['trust'])

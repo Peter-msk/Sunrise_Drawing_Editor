@@ -40,7 +40,7 @@ def build_metadata(exe, sha256, signature, *, root=ROOT):
             'notice.txt': (notice + '\n').encode('utf-8')}
 
 
-def publish_bundle(exe, destination, sha256, signature, digest, *, root=ROOT):
+def publish_bundle(exe, destination, sha256, signature, digest, *, functional_qa, root=ROOT):
     """Prepare every output first; replace EXE last, roll back sidecars on error."""
     import os
     import shutil
@@ -51,6 +51,7 @@ def publish_bundle(exe, destination, sha256, signature, digest, *, root=ROOT):
     files['SHA256.txt'] = f'{sha256}  {exe.name}\n'.encode('utf-8')
     files['SIGNATURE_STATUS.json'] = (json.dumps(dict(signature, windows_exe_smoke_pass=True),
                                                 indent=2, ensure_ascii=True) + '\n').encode('ascii')
+    files['FUNCTIONAL_QA.json'] = (json.dumps(functional_qa, indent=2, ensure_ascii=False) + '\n').encode('utf-8')
     destination.mkdir(parents=True, exist_ok=True)
     (destination / 'release-metadata').mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='.publish-', dir=destination) as tmp:

@@ -23,6 +23,7 @@ from uuid import UUID
 from .release_feed import (APP_VERSION, LOCAL_EXE_NAME, ASSET_NAME, version_tuple,
                            validated_download)
 from .control import check_policy, ensure_update_allowed
+from .version_gate import verify_candidate_version
 
 EXE_NAME = LOCAL_EXE_NAME
 STAGE_PREFIX = '.sunrise-update-'
@@ -221,6 +222,9 @@ def stage_update(release, *, cancelled=None, progress=None):
                 os.fsync(out.fileno())
         if verified_signer(candidate) != current_signer:
             raise UpdateError('기존 EXE와 새 EXE의 검증된 서명 인증서가 다릅니다.')
+        if cancelled and cancelled():
+            raise UpdateError('업데이트 취소')
+        verify_candidate_version(candidate, release.version, _independent_env())
         if cancelled and cancelled():
             raise UpdateError('업데이트 취소')
         smoke = subprocess.run([str(candidate), '--self-test'], env=_independent_env(),

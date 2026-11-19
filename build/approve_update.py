@@ -16,6 +16,8 @@ from drawing_editor.release_feed import (APP_VERSION, APP_ID, ASSET_NAME, RELEAS
     _NoRedirect, release_download_urls, parse_release, version_tuple)
 from drawing_editor.onefile_update import digest, verified_signer, _independent_env
 from build.pe_version import read_version_resource, verify_version_resource
+from build.functional_gate import read_functional_qa
+from drawing_editor.version_gate import verify_candidate_version
 
 
 def release_record(version):
@@ -71,7 +73,9 @@ def approve(old, new, metadata, output):
     if verified_signer(old) != verified_signer(new):
         raise ValueError('Previous and target EXEs do not have the same trusted leaf signer')
     old_sha, sha = digest(old), digest(new)
-    for exe in (old, new):
+    for exe, version, fingerprint in ((old, old_version, old_sha), (new, APP_VERSION, sha)):
+        read_functional_qa(exe.parent / 'FUNCTIONAL_QA.json', fingerprint)
+        verify_candidate_version(exe, version, _independent_env())
         run = subprocess.run([str(exe), '--self-test'], env=_independent_env(),
                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                              stderr=subprocess.DEVNULL, timeout=120,

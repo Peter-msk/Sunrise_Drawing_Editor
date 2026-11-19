@@ -68,6 +68,10 @@ if /I "%BUILD_RUN_TESTS%"=="1" (
     if errorlevel 1 goto :failed
     %PY_RUN% "build\test_update_contract.py"
     if errorlevel 1 goto :failed
+    %PY_RUN% "build\test_functional_gate.py"
+    if errorlevel 1 goto :failed
+    %PY_RUN% "build\test_version_gate.py"
+    if errorlevel 1 goto :failed
 ) else (
     echo [INFO] Targeted packaged drawing QA is mandatory; full source suite is optional.
 )
@@ -124,7 +128,7 @@ echo [PASS] Local LEAN output: dist\Sunrise Drawing Editor.exe
 echo [PASS] Release metadata: dist\release-metadata\latest.json
 echo [PASS] Notice: dist\release-metadata\notice.txt
 echo [INFO] Upload only after release approval; live repository feeds stay unchanged.
-echo [INFO] Functional QA: build\staging\FUNCTIONAL_QA.json
+echo [INFO] Functional QA: dist\FUNCTIONAL_QA.json
 echo [INFO] Full Windows GUI / DWG / RDP / trusted release QA remains required.
 if exist "dist\SIGNATURE_STATUS.json" echo [INFO] Trust state: dist\SIGNATURE_STATUS.json
 popd

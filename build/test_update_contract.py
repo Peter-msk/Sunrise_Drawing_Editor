@@ -70,7 +70,7 @@ class ContractTests(unittest.TestCase):
                 def geturl(self):return r.download
             from drawing_editor.control import Policy
             from types import SimpleNamespace
-            with patch.object(update.sys,'platform','win32'),patch.object(update.sys,'frozen',True,create=True),patch.object(update.sys,'executable',str(p)),patch.object(update,'check_policy',return_value=Policy()),patch.object(update,'verified_signer',return_value='same'),patch.object(update,'build_opener') as op,patch.object(update.subprocess,'run',return_value=SimpleNamespace(returncode=0)):
+            with patch.object(update.sys,'platform','win32'),patch.object(update.sys,'frozen',True,create=True),patch.object(update.sys,'executable',str(p)),patch.object(update,'check_policy',return_value=Policy()),patch.object(update,'verified_signer',return_value='same'),patch.object(update,'build_opener') as op,patch.object(update.subprocess,'run',side_effect=[SimpleNamespace(returncode=42), SimpleNamespace(returncode=0)]):
                 op.return_value.open.return_value=Response(payload);prep=update.stage_update(r);self.assertEqual(Path(prep[0]).read_bytes(),payload); self.assertEqual(prep[1],str(p.resolve()));update.discard_prepared(prep)
             self.assertEqual(p.read_bytes(),b'old')
     def test_helper_replaces_both_targets_and_rolls_back_on_launch_failure(self):
