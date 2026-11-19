@@ -5,7 +5,7 @@
   "channel": "stable",
   "platform": "windows-x64",
   "package_kind": "onefile_exe",
-  "latest_version": "1.0.0",
+  "latest_version": "1.1.0",
   "update_endpoint_configured": false,
   "official_release": false,
   "authenticode_required": true,
@@ -16,9 +16,9 @@
   "publisher": "Sunrise Group",
   "automatic_update_available": false,
   "update_mode": "user_approved_self_replace",
-  "release_notes": "2026-11-18: 공식 1.0.0 소스 기준본(R24) 확정. LEAN 단일 빌드, 미리보기 단계별 진행률, 대형 흰 배경 PNG 여백 제거 단일 패스 개선. R24 Windows EXE 전체 실기 및 신뢰 서명 검증은 미완료이며 다운로드/자동 업데이트는 비활성화 상태입니다.",
-  "source_version": "1.0.0",
+  "release_notes": "2026-11-19: 이미지 추출 완료 후 저장 폴더 자동 열기, 흰 여백 검사 및 대형 이미지 래스터 버퍼 처리 최적화. Windows 실행파일은 배포 준비 중입니다.",
+  "source_version": "1.1.0",
   "source_status": "official_source",
-  "source_baseline": "R24",
-  "source_url": "https://github.com/Peter-msk/Sunrise_Drawing_Editor/tree/V1_0_0_SOURCE"
+  "source_baseline": "V1_1_0",
+  "source_url": "https://github.com/Peter-msk/Sunrise_Drawing_Editor/tree/V1_1_0"
 }

@@ -7,23 +7,12 @@ from __future__ import annotations
 
 import tempfile
 
-from PIL import Image, ImageChops
+from PIL import Image
 
 from .tiles import raster_stripes, save_png_tiled
 
 
-def _colored_bbox(image):
-    """Find non-white RGB pixels, regardless of whether white ink was painted."""
-    rgb = image.convert('RGB')
-    try:
-        white = Image.new('RGB', rgb.size, 'white')
-        try:
-            return ImageChops.difference(rgb, white).getbbox()
-        finally:
-            white.close()
-    finally:
-        rgb.close()
-
+from .raster_buffer import colored_bbox as _colored_bbox
 
 def image_ink_bbox(image):
     """Visible content bbox: preserve white ink on a transparent canvas.

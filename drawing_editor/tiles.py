@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Callable
 import fitz
 from PIL import Image
+from .raster_buffer import blank_stripe, pack_png_rows
 
 
 def _check(cancelled):
@@ -51,8 +52,7 @@ def raster_stripes(page, width, height, *, edge=512, progress=None,
         y1 = min(height, y0 + edge_y)
         # Transparent PNG starts with zero alpha. The historical RGB path
         # keeps white page paper, so existing exports remain byte-compatible.
-        stripe = bytearray((b'\x00' if transparent else b'\xff') *
-                           (width * (y1-y0) * channels))
+        stripe = blank_stripe(width * (y1-y0) * channels, transparent)
         for x0 in range(0, width, step_x):
             _check(cancelled)
             x1 = min(width, x0 + step_x)
@@ -146,11 +146,8 @@ def save_png_tiled(page, stream, width, height, dpi, *, progress=None,
         if first >= last:
             continue
         rows = last - first
-        encoded_rows = bytearray((rowbytes + 1) * rows)
-        for n in range(rows):
-            src = ((first + n - y0) * full_width + left) * channels
-            dst = n * (rowbytes + 1) + 1
-            encoded_rows[dst:dst + rowbytes] = stripe[src:src + rowbytes]
+        encoded_rows = pack_png_rows(stripe, full_width, channels, left,
+                                     first-y0, rows, rowbytes)
         compressed = enc.compress(encoded_rows)
         if compressed:
             chunks.append(compressed)

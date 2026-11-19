@@ -1,6 +1,6 @@
 # Sunrise Drawing Editor
 
-**도면 레이어 관리 및 이미지 추출 프로그램 · v1.0.0**
+**도면 레이어 관리 및 이미지 추출 프로그램 · v1.1.0**
 
 ![Sunrise Drawing Editor](assets/app.svg)
 
@@ -18,7 +18,7 @@ Sunrise Drawing Editor는 환경영향평가, 설계 및 GIS 업무에 사용하
 | 레이어 제어 | 레이어 검색, 개별 표시/숨김, 전체 켜기/끄기 |
 | 레이어 규칙 | 표시 조건 저장 및 선택 도면 일괄 적용 |
 | 미리보기 | 확대·축소·이동, 확대 영역 고해상도 렌더링 및 단계별 진행률 |
-| 이미지 추출 | 선택 도면의 PNG·JPG 개별 및 일괄 추출 |
+| 이미지 추출 | 선택 도면의 PNG·JPG 개별 및 일괄 추출, 완료 후 저장 폴더 자동 열기 |
 | 출력 설정 | 원본 자동 해상도 또는 사용자 지정 이미지 크기 및 DPI |
 | PNG 편집 | 투명 배경 및 흰 여백 제거 |
 | 대용량 처리 | 분할 렌더링, 추출 진행률 및 작업 중단 |
@@ -38,11 +38,11 @@ Sunrise Drawing Editor는 환경영향평가, 설계 및 GIS 업무에 사용하
 3. 레이어 목록에서 필요한 레이어를 켜거나 불필요한 레이어를 끕니다. 반복 사용하는 조건은 규칙으로 저장하고 선택 도면에 적용할 수 있습니다.
 4. 미리보기에서 표시 상태와 도면 내용을 확인합니다.
 5. 출력 형식(PNG 또는 JPG), 해상도 및 저장 위치를 설정합니다. PNG는 투명 배경과 흰 여백 제거 옵션을 사용할 수 있습니다.
-6. **선택 도면 추출**을 눌러 이미지를 저장합니다.
+6. **선택 도면 추출**을 눌러 이미지를 저장합니다. 모든 추출이 성공하면 저장 폴더가 자동으로 열립니다.
 
 ## 실행 방법
 
-[프로그램 다운로드(Releases)](https://github.com/Peter-msk/Sunrise_Drawing_Editor/releases)에서 공개된 Windows 실행파일을 확인할 수 있습니다. 현재 v1.0.0 실행파일은 배포 준비 중입니다.
+[프로그램 다운로드(Releases)](https://github.com/Peter-msk/Sunrise_Drawing_Editor/releases)에서 공개된 Windows 실행파일을 확인할 수 있습니다. 현재 v1.1.0 실행파일은 배포 준비 중입니다.
 
 소스로 실행하려면 [최신 소스 ZIP](https://github.com/Peter-msk/Sunrise_Drawing_Editor/archive/refs/heads/main.zip)을 내려받아 압축을 해제합니다. Python 3.11 이상이 설치된 Windows에서 처음에는 `INSTALL_AND_RUN.cmd`, 이후에는 `RUN.cmd`를 실행합니다.
 
