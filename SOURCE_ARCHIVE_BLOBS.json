@@ -1,7 +1,7 @@
 {
   "version": 1,
   "algorithm": "git-blob-sha1",
-  "basis": "1.0.0 CONTROL R02 schema v1 runtime/update gating; Windows QA pending; manifest self excluded",
+  "basis": "v1.0.0 user-facing README and notice refresh; runtime and release settings unchanged; manifest self excluded",
   "files": {
     ".gitignore": "a50b7da58fa8945f1e93ec098e624480aecffd30",
     "assets/app.ico": "ed24931cf056861c72d95e40033a8f1740919193",
@@ -173,7 +173,7 @@
     "LARGE_CAD_OPTIMIZATION.md": "efd0b23357422518ad24352a3ea740f33c96b234",
     "latest.json": "b6b0756745e956562bbb85304ddc835d983a8eeb",
     "main.py": "edd3b8dacb8232ee9afc2c7a46d5b9187630812e",
-    "notice.txt": "d31a0042bf6267b74f42ca286c0cf9901b218599",
+    "notice.txt": "9033a9f7eb152d866f82dbf8074bcf02ff4f5a02",
     "nuitka_entry.py": "b06e5cf865a2d7806f995fd482dda5f12ea6d119",
     "OPEN_SOURCE_REVIEW.md": "cb8c3314a2a9e4e33eb3e1f9a0f146c326c015a2",
     "PNG_CONTENT_CROP_IMPLEMENTATION.md": "cdb04ece1ce67da2fef776c7ed9fcde6a42924b4",
@@ -239,7 +239,7 @@
     "quality/validate_onmap_source_pdf.py": "6efd0b977b42f052a12103f10eb04e8807461ac2",
     "quality/validate_three_pass.py": "ba51bef0fa9266fb737e2cc2b3788a8251c3b2a1",
     "quality/verify_real_dxf_hashes.py": "4134f5559227f443698caed3ae0eb7640c9edc1c",
-    "README.md": "8548c246d218fcdba51509dd6788930412f4f5f2",
+    "README.md": "63f304489646317336c94bd9999342344fe00514",
     "RELEASE_STATUS.md": "cb559e226f8a76a20496dd43b58ed12a7fd48f26",
     "RENDER_EXPORT_OPTIMIZATION.md": "b2fc0868149b21ca87c064ea03c5cb98efdb61e5",
     "requirements.txt": "3b3070f9ef111cc2bb147503b780870b30f9d6a6",
