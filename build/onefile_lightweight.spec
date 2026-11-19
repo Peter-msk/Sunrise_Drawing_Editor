@@ -10,6 +10,7 @@ sys.path.insert(0, str(root / 'build'))
 from lightweight_policy import PROFILES, filter_toc
 from lean_policy import LEAN_EXCLUDES, prune_qt
 from pyz_policy import PYZ_EXCLUDES
+from pe_version import write_version_resource
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--profile', choices=PROFILES, required=True)
@@ -43,8 +44,10 @@ with args.plan.open('x', encoding='utf-8') as report:
                'dependency_blocked_qt': blocked_qt,
                'note': 'Source bytes are not compressed EXE savings; native import checks do not establish runtime compatibility.'}, report, indent=2)
     report.write('\n')
+version_path = args.plan.parent / 'VERSIONINFO.txt'
+write_version_resource(version_path, root=root)
 pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, a.binaries, a.datas, [],
           name='Sunrise Drawing Editor', debug=False, bootloader_ignore_signals=False,
           strip=False, upx=False, console=False,
-          icon=str(root / 'assets' / 'app.ico'))
+          icon=str(root / 'assets' / 'app.ico'), version=str(version_path))

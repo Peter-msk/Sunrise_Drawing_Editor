@@ -7,11 +7,23 @@ import pathlib
 import subprocess
 import sys
 
+try:
+    from build.pe_version import verify_version_resource
+except ModuleNotFoundError:
+    from pe_version import verify_version_resource
+
 
 def smoke(exe: pathlib.Path, timeout: int) -> int:
+    (exe.parent / 'SMOKE_STATUS.json').unlink(missing_ok=True)
     if not exe.is_file() or exe.stat().st_size < 1024:
         print(f'[ERROR] Executable not found or unexpectedly small: {exe}')
         return 2
+    try:
+        version_resource = verify_version_resource(exe)
+    except (OSError, ValueError) as exc:
+        print(f'[ERROR] Windows EXE version resource: {exc}')
+        return 6
+    print('[PASS] Windows version resource:', version_resource['strings']['ProductVersion'])
     try:
         result = subprocess.run([str(exe.resolve()), '--self-test'],
                                 capture_output=True, timeout=timeout, check=False)
@@ -31,7 +43,8 @@ def smoke(exe: pathlib.Path, timeout: int) -> int:
     # The second invocation after signing will replace the pre-sign stamp.
     digest = hashlib.sha256(exe.read_bytes()).hexdigest()
     (exe.parent / 'SMOKE_STATUS.json').write_text(
-        json.dumps({'sha256': digest, 'passed': True, 'argument': '--self-test'},
+        json.dumps({'sha256': digest, 'passed': True, 'argument': '--self-test',
+                    'version_resource': version_resource},
                    indent=2) + '\n', encoding='utf-8')
     print(f'[PASS] Actual packaged EXE self-test passed: {exe.name}')
     return 0
