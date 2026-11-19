@@ -32,3 +32,7 @@ Sunrise Drawing Editor v1.0.0
 앞으로도 사용자 의견을 반영하여 지속적으로 개선해 나가겠습니다.
 
 Sunrise Group
+
+[업데이트 안정화 R03]
+- Windows 공인 신뢰 판정과 동일 인증서 강제를 업데이트 조건에서 제거; Sunrise Group 빌드 서명 및 HTTPS/SHA-256 검증 유지.
+- 정상 재시작 후 해당 업데이트의 이전 Onefile 및 임시 파일 정리. 실패 시 복구 파일 보존.

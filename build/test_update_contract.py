@@ -70,7 +70,7 @@ class ContractTests(unittest.TestCase):
                 def geturl(self):return r.download
             from drawing_editor.control import Policy
             from types import SimpleNamespace
-            with patch.object(update.sys,'platform','win32'),patch.object(update.sys,'frozen',True,create=True),patch.object(update.sys,'executable',str(p)),patch.object(update,'check_policy',return_value=Policy()),patch.object(update,'verified_signer',return_value='same'),patch.object(update,'build_opener') as op,patch.object(update.subprocess,'run',side_effect=[SimpleNamespace(returncode=42), SimpleNamespace(returncode=0)]):
+            with patch.object(update.sys,'platform','win32'),patch.object(update.sys,'frozen',True,create=True),patch.object(update.sys,'executable',str(p)),patch.object(update,'check_policy',return_value=Policy()),patch.object(update,'build_opener') as op,patch.object(update.subprocess,'run',side_effect=[SimpleNamespace(returncode=42), SimpleNamespace(returncode=0)]):
                 op.return_value.open.return_value=Response(payload);prep=update.stage_update(r);self.assertEqual(Path(prep[0]).read_bytes(),payload); self.assertEqual(prep[1],str(p.resolve()));update.discard_prepared(prep)
             self.assertEqual(p.read_bytes(),b'old')
     def test_helper_replaces_both_targets_and_rolls_back_on_launch_failure(self):
@@ -81,7 +81,7 @@ class ContractTests(unittest.TestCase):
                     target=Path(tmp)/name; target.write_bytes(b'old')
                     stage=Path(tmp)/'.sunrise-update-test';stage.mkdir();candidate=stage/'candidate.exe';candidate.write_bytes(b'new')
                     args=[str(target),update.digest(target),update.digest(candidate),APP_VERSION,'0.9.0','123']
-                    with patch.object(update.sys,'platform','win32'),patch.object(update.sys,'frozen',True,create=True),patch.object(update.sys,'executable',str(candidate)),patch.object(update,'verified_signer',return_value='same'),patch.object(update,'_wait_for_exit'),patch.object(update,'check_policy',return_value=Policy()),patch.object(update.subprocess,'Popen',side_effect=OSError('launch failed') if launch_failure else None):
+                    with patch.object(update.sys,'platform','win32'),patch.object(update.sys,'frozen',True,create=True),patch.object(update.sys,'executable',str(candidate)),patch.object(update,'verify_release_authority'),patch.object(update,'_wait_for_exit'),patch.object(update,'check_policy',return_value=Policy()),patch.object(update.subprocess,'Popen',side_effect=OSError('launch failed') if launch_failure else None):
                         if launch_failure:
                             with self.assertRaises(OSError):update.apply_update(args)
                             self.assertEqual(target.read_bytes(),b'old')
@@ -89,26 +89,42 @@ class ContractTests(unittest.TestCase):
                             self.assertEqual(update.apply_update(args),0)
                             self.assertEqual(target.read_bytes(),b'new');self.assertEqual((stage/'rollback.exe').read_bytes(),b'old')
 
-    def test_different_signer_blocks_before_swap(self):
+    def test_official_feed_mismatch_blocks_before_swap(self):
         with tempfile.TemporaryDirectory() as tmp:
             target=Path(tmp)/ASSET_NAME;target.write_bytes(b'old');stage=Path(tmp)/'.sunrise-update-test';stage.mkdir();candidate=stage/'candidate.exe';candidate.write_bytes(b'new')
             args=[str(target),update.digest(target),update.digest(candidate),APP_VERSION,'0.9.0','123']
-            with patch.object(update.sys,'platform','win32'),patch.object(update.sys,'frozen',True,create=True),patch.object(update.sys,'executable',str(candidate)),patch.object(update,'verified_signer',side_effect=['new','old']),patch.object(update,'_wait_for_exit') as wait:
+            with patch.object(update.sys,'platform','win32'),patch.object(update.sys,'frozen',True,create=True),patch.object(update.sys,'executable',str(candidate)),patch.object(update,'verify_release_authority',side_effect=update.UpdateError('feed mismatch')),patch.object(update,'_wait_for_exit') as wait:
                 with self.assertRaises(update.UpdateError):update.apply_update(args)
                 wait.assert_not_called();self.assertEqual(target.read_bytes(),b'old')
+
+    def test_helper_authority_uses_official_feed(self):
+        d = feed(VER)
+        with patch.object(update, 'fetch_text', return_value=json.dumps(d)) as fetch:
+            update.verify_release_authority(APP_VERSION, VER, SHA, SIZE)
+            fetch.assert_called_once_with('latest.json')
+            for sha, size in (('a'*64, SIZE), (SHA, SIZE+1)):
+                with self.assertRaises(update.UpdateError):
+                    update.verify_release_authority(APP_VERSION, VER, sha, size)
+        d['automatic_update_available'] = False
+        with patch.object(update, 'fetch_text', return_value=json.dumps(d)):
+            with self.assertRaises(update.UpdateError):
+                update.verify_release_authority(APP_VERSION, VER, SHA, SIZE)
 
     def test_build_metadata_canonical_but_inactive(self):
         with tempfile.TemporaryDirectory() as tmp:
             p=Path(tmp)/LOCAL_EXE_NAME;p.write_bytes(b'test');sha=update.digest(p);d=json.loads(build_metadata(p,sha,{'sha256':sha,'trust':'TRUSTED_BY_WINDOWS_POLICY'})['latest.json'])
             self.assertEqual(d['download_file_name'],ASSET_NAME);self.assertEqual(d['download_url'],release_download_urls(APP_VERSION)[0]);self.assertFalse(d['automatic_update_available'])
     def test_approval_exact_asset(self):
-        d=feed('1.1.0');d.update(update_endpoint_configured=False,official_release=False,automatic_update_available=False); a=asset(d); x=approved_metadata(d,a,version='1.1.0',old_version='1.0.0',sha=SHA,size=SIZE)
-        self.assertTrue(x['automatic_update_available']);self.assertFalse(d['automatic_update_available'])
+        d=feed('1.1.0');d.update(update_endpoint_configured=False,official_release=False,automatic_update_available=False); a=asset(d); x=approved_metadata(d,a,version='1.1.0',old_version='1.0.0',sha=SHA,size=SIZE,signature_trust='SELF_SIGNED_UNTRUSTED_TEST_ONLY')
+        self.assertTrue(x['automatic_update_available']);self.assertFalse(d['automatic_update_available']);self.assertEqual(x['signature_trust'],'SELF_SIGNED_UNTRUSTED_TEST_ONLY')
+    def test_approval_rejects_unverified_signature_status(self):
+        d=feed('1.1.0')
+        with self.assertRaises(ValueError):approved_metadata(d,asset(d),version='1.1.0',old_version='1.0.0',sha=SHA,size=SIZE,signature_trust='UNKNOWN')
     def test_approval_rejects_mismatch(self):
         d=feed('1.1.0')
         for field,value in [('digest','sha256:'+'a'*64),('size',SIZE+1),('state','new'),('browser_download_url','https://example.com/a')]:
             a=asset(d);a['assets'][0][field]=value
-            with self.subTest(field=field),self.assertRaises(ValueError):approved_metadata(d,a,version='1.1.0',old_version='1.0.0',sha=SHA,size=SIZE)
+            with self.subTest(field=field),self.assertRaises(ValueError):approved_metadata(d,a,version='1.1.0',old_version='1.0.0',sha=SHA,size=SIZE,signature_trust='SELF_SIGNED_UNTRUSTED_TEST_ONLY')
         a=asset(d);a['draft']=True
-        with self.assertRaises(ValueError): approved_metadata(d,a,version='1.1.0',old_version='1.0.0',sha=SHA,size=SIZE)
+        with self.assertRaises(ValueError): approved_metadata(d,a,version='1.1.0',old_version='1.0.0',sha=SHA,size=SIZE,signature_trust='SELF_SIGNED_UNTRUSTED_TEST_ONLY')
 if __name__=='__main__': unittest.main(verbosity=2)

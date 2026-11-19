@@ -18,10 +18,10 @@ import tempfile
 import time
 from urllib.parse import urlsplit
 from urllib.request import Request, build_opener, HTTPRedirectHandler
-from uuid import UUID
+from urllib.error import HTTPError, URLError
 
 from .release_feed import (APP_VERSION, LOCAL_EXE_NAME, ASSET_NAME, version_tuple,
-                           validated_download)
+                           validated_download, fetch_text, parse_release)
 from .control import check_policy, ensure_update_allowed
 from .version_gate import verify_candidate_version
 
@@ -90,93 +90,42 @@ def stream_verified(source, destination, size, sha256, *, cancelled=None, progre
         raise UpdateError('업데이트 파일 크기 또는 SHA-256 불일치')
 
 
-class _TrustFile(ctypes.Structure):
-    _fields_ = [('cbStruct', w.DWORD), ('pcwszFilePath', w.LPCWSTR),
-                ('hFile', w.HANDLE), ('pgKnownSubject', ctypes.c_void_p)]
-
-
-class _TrustData(ctypes.Structure):
-    _fields_ = [('cbStruct', w.DWORD), ('pPolicyCallbackData', ctypes.c_void_p),
-                ('pSIPClientData', ctypes.c_void_p), ('dwUIChoice', w.DWORD),
-                ('fdwRevocationChecks', w.DWORD), ('dwUnionChoice', w.DWORD),
-                ('pFile', ctypes.POINTER(_TrustFile)), ('dwStateAction', w.DWORD),
-                ('hWVTStateData', w.HANDLE), ('pwszURLReference', w.LPWSTR),
-                ('dwProvFlags', w.DWORD), ('dwUIContext', w.DWORD),
-                ('pSignatureSettings', ctypes.c_void_p)]
-
-
-class _CertContext(ctypes.Structure):
-    _fields_ = [('dwCertEncodingType', w.DWORD), ('pbCertEncoded', ctypes.c_void_p),
-                ('cbCertEncoded', w.DWORD), ('pCertInfo', ctypes.c_void_p),
-                ('hCertStore', w.HANDLE)]
-
-
-class _ProviderCertHead(ctypes.Structure):
-    _fields_ = [('cbStruct', w.DWORD), ('pCert', ctypes.POINTER(_CertContext))]
-
-
-def verified_signer(path):
-    """Return fingerprint of the actual WinVerifyTrust-validated leaf signer.
-
-    Untrusted self-signed builds, revoked/unverifiable signatures, and renamed
-    publishers fail closed. Never install a certificate or disable revocation.
-    """
-    if sys.platform != 'win32':
-        raise UpdateError('Windows Authenticode 검증 환경이 아닙니다.')
-    dll = ctypes.WinDLL('wintrust', use_last_error=True)
-    crypt = ctypes.WinDLL('crypt32', use_last_error=True)
-    guid = (ctypes.c_ubyte * 16).from_buffer_copy(UUID('00aac56b-cd44-11d0-8cc2-00c04fc295ee').bytes_le)
-    info = _TrustFile()
-    info.cbStruct = ctypes.sizeof(info)
-    info.pcwszFilePath = str(Path(path).resolve(strict=True))
-    data = _TrustData()
-    data.cbStruct = ctypes.sizeof(data)
-    data.dwUIChoice = 2  # WTD_UI_NONE
-    data.fdwRevocationChecks = 1  # WTD_REVOKE_WHOLECHAIN
-    data.dwUnionChoice = 1  # WTD_CHOICE_FILE
-    data.pFile = ctypes.pointer(info)
-    data.dwStateAction = 1  # WTD_STATEACTION_VERIFY
-    data.dwProvFlags = 0x80  # WTD_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT
-    verify = dll.WinVerifyTrust
-    verify.argtypes = [w.HWND, ctypes.c_void_p, ctypes.POINTER(_TrustData)]
-    verify.restype = w.LONG
+def verify_release_authority(previous, expected, sha256, size):
+    """Recheck official HTTPS metadata before the helper replaces the old EXE."""
     try:
-        status = verify(None, ctypes.byref(guid), ctypes.byref(data))
-        if status != 0:
-            raise UpdateError(f'Authenticode 신뢰 검증 실패: 0x{status & 0xffffffff:08x}')
-        provider = dll.WTHelperProvDataFromStateData
-        provider.argtypes = [w.HANDLE]
-        provider.restype = ctypes.c_void_p
-        signer = dll.WTHelperGetProvSignerFromChain
-        signer.argtypes = [ctypes.c_void_p, w.DWORD, w.BOOL, w.DWORD]
-        signer.restype = ctypes.c_void_p
-        cert = dll.WTHelperGetProvCertFromChain
-        cert.argtypes = [ctypes.c_void_p, w.DWORD]
-        cert.restype = ctypes.POINTER(_ProviderCertHead)
-        prov = provider(data.hWVTStateData)
-        sg = signer(prov, 0, False, 0) if prov else None
-        cp = cert(sg, 0) if sg else None
-        if not cp or not cp.contents.pCert:
-            raise UpdateError('실제 검증된 서명자 인증서가 없습니다.')
-        ctx = cp.contents.pCert
-        name_fn = crypt.CertGetNameStringW
-        name_fn.argtypes = [ctypes.POINTER(_CertContext), w.DWORD, w.DWORD,
-                            ctypes.c_void_p, w.LPWSTR, w.DWORD]
-        name_fn.restype = w.DWORD
-        n = name_fn(ctx, 4, 0, None, None, 0)  # CERT_NAME_SIMPLE_DISPLAY_TYPE
-        if not 1 < n < 1024:
-            raise UpdateError('유효한 게시자 이름이 없습니다.')
-        name = ctypes.create_unicode_buffer(n)
-        name_fn(ctx, 4, 0, None, name, n)
-        if name.value != 'Sunrise Group':
-            raise UpdateError('공식 Sunrise Group 게시자와 일치하지 않습니다.')
-        leaf = ctx.contents
-        if not leaf.pbCertEncoded or not 1 <= leaf.cbCertEncoded <= 65536:
-            raise UpdateError('서명자 인증서 형식 오류')
-        return hashlib.sha256(ctypes.string_at(leaf.pbCertEncoded, leaf.cbCertEncoded)).hexdigest()
-    finally:
-        data.dwStateAction = 2  # WTD_STATEACTION_CLOSE
-        verify(None, ctypes.byref(guid), ctypes.byref(data))
+        release = parse_release(fetch_text('latest.json'), current=previous)
+    except (ValueError, OSError) as exc:
+        raise UpdateError('공식 업데이트 정보 재확인 실패') from exc
+    if (release is None or not release.automatic or release.version != expected
+            or release.sha256 != sha256 or release.size != size):
+        raise UpdateError('공식 업데이트 정보와 신규 EXE 불일치')
+
+
+def report_update_error(exc, stage='업데이트 검증'):
+    """Expose useful diagnostics without signed download URL/query or local document paths."""
+    if isinstance(exc, UpdateError):
+        detail = str(exc)
+    elif isinstance(exc, HTTPError):
+        detail = f'다운로드 HTTP {exc.code}'
+    elif isinstance(exc, URLError):
+        detail = '다운로드 네트워크 또는 TLS 연결 실패'
+    elif isinstance(exc, subprocess.TimeoutExpired):
+        detail = '신규 EXE 검사 시간 초과'
+    elif isinstance(exc, OSError):
+        detail = f'{type(exc).__name__} (OS 오류 {getattr(exc, "winerror", None) or exc.errno})'
+    elif isinstance(exc, ValueError):
+        detail = '신규 EXE 버전 또는 메타데이터 검증 실패'
+    else:
+        detail = type(exc).__name__
+    message = (stage + ': ' + detail).replace('\r', ' ').replace('\n', ' ')[:500]
+    try:
+        location = Path(os.environ.get('LOCALAPPDATA') or Path.home() / '.cache')
+        folder = location / 'Sunrise Group' / 'DrawingEditor'
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / 'update-last-error.txt').write_text(message + '\n', encoding='utf-8')
+    except OSError:
+        pass
+    return message
 
 
 def _independent_env():
@@ -206,7 +155,6 @@ def stage_update(release, *, cancelled=None, progress=None):
         raise UpdateError('잘못된 업데이트 메타데이터')
     ensure_update_allowed(check_policy(), release.version)
     target = _target(sys.executable)
-    current_signer = verified_signer(target)
     old_sha = digest(target)
     stage = Path(tempfile.mkdtemp(prefix=STAGE_PREFIX, dir=target.parent))
     candidate = stage / 'candidate.exe'
@@ -220,10 +168,10 @@ def stage_update(release, *, cancelled=None, progress=None):
                                 cancelled=cancelled, progress=progress)
                 out.flush()
                 os.fsync(out.fileno())
-        if verified_signer(candidate) != current_signer:
-            raise UpdateError('기존 EXE와 새 EXE의 검증된 서명 인증서가 다릅니다.')
         if cancelled and cancelled():
             raise UpdateError('업데이트 취소')
+        # Release authenticity follows the pinned HTTPS feed and exact byte digest.
+        # Windows public-CA trust is not a product update condition.
         verify_candidate_version(candidate, release.version, _independent_env())
         if cancelled and cancelled():
             raise UpdateError('업데이트 취소')
@@ -305,8 +253,7 @@ def apply_update(args):
         raise UpdateError('허용되지 않은 업데이트 임시 경로')
     if digest(candidate) != new_sha or digest(target) != old_sha:
         raise UpdateError('실행파일 해시 불일치')
-    if verified_signer(candidate) != verified_signer(target):
-        raise UpdateError('서명자 일치 검증 실패')
+    verify_release_authority(previous, expected, new_sha, candidate.stat().st_size)
     _wait_for_exit(int(pid))
     ensure_update_allowed(check_policy(), expected)
     if digest(target) != old_sha:
@@ -333,13 +280,14 @@ def apply_update(args):
     try:
         if digest(target) != new_sha:
             raise UpdateError('교체 후 EXE 무결성 오류')
-        subprocess.Popen([str(target)], cwd=str(target.parent), env=_independent_env(),
+        subprocess.Popen([str(target), '--update-completed', str(stage), old_sha, new_sha],
+                         cwd=str(target.parent), env=_independent_env(),
                          close_fds=True)
     except BaseException:
         os.replace(backup, target)
         raise
-    # Keep rollback until the user verifies the new version. The helper itself
-    # is running from stage, so Windows may not allow removing that folder yet.
+    # Replacement GUI removes verified rollback/helper only after it starts.
+    # Until that point the backup remains available.
     return 0
 
 
@@ -349,6 +297,6 @@ def helper_main(args):
     except Exception as exc:
         if sys.platform != 'win32':
             return 1
-        ctypes.windll.user32.MessageBoxW(None, str(exc) + '\n기존 EXE 또는 임시 롤백 파일을 보존했습니다.',
+        ctypes.windll.user32.MessageBoxW(None, report_update_error(exc, 'EXE 교체') + '\n기존 EXE 또는 임시 롤백 파일을 보존했습니다.',
                                          'Sunrise Drawing Editor 업데이트 실패', 0x10)
         return 1
