@@ -4,6 +4,11 @@ from pathlib import Path
 
 
 def main():
+    # Candidate update version handshake must never initialize Qt or contact servers.
+    if len(sys.argv) > 1 and sys.argv[1] == '--verify-update-version':
+        from drawing_editor.release_feed import APP_VERSION
+        from drawing_editor.version_gate import version_probe_exit
+        return version_probe_exit(sys.argv, APP_VERSION)
     # Frozen onefile worker must bypass QApplication / QWidget construction.
     # The child retains its own MuPDF/ezdxf state and can be terminated safely.
     if len(sys.argv) > 1 and sys.argv[1] == '--apply-onefile-update':
@@ -16,6 +21,12 @@ def main():
         from drawing_editor.batch_worker import worker_main
         return worker_main(sys.argv[2:])
 
+    cleanup = None
+    if len(sys.argv) > 1 and sys.argv[1] == '--update-completed':
+        if len(sys.argv) != 5 or not getattr(sys, 'frozen', False):
+            return 2
+        cleanup = tuple(sys.argv[2:])
+        sys.argv = sys.argv[:1]
     from PySide6.QtWidgets import QApplication
     from PySide6.QtGui import QIcon
 
@@ -46,6 +57,21 @@ def main():
     from drawing_editor.release_ui import ReleaseFeedController
     window.release_feed = ReleaseFeedController(window, auto_check=True)
     window.show()
+    if cleanup is not None:
+        from PySide6.QtCore import QTimer
+        from threading import Thread
+        from drawing_editor.update_policy import cleanup_after_start
+        def cleanup_worker():
+            if not cleanup_after_start(sys.executable, *cleanup):
+                from drawing_editor.onefile_update import report_update_error, UpdateError
+                report_update_error(UpdateError('이전 EXE 정리 미완료; 검증 가능한 롤백 파일 보존'),
+                                    '업데이트 후 정리')
+
+        def cleanup_started_update():
+            if window.isVisible():
+                Thread(target=cleanup_worker, daemon=True,
+                       name='sunrise-update-cleanup').start()
+        QTimer.singleShot(0, cleanup_started_update)
     return app.exec()
 
 

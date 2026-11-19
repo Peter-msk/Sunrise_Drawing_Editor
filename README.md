@@ -57,3 +57,11 @@ Sunrise Drawing Editor는 환경영향평가, 설계 및 GIS 업무에 사용하
 원본 도면의 출처 및 이용조건을 준수해 주세요. 외부 라이브러리 관련 사항은 [THIRD_PARTY_NOTICE.md](THIRD_PARTY_NOTICE.md)를 참고할 수 있습니다. 소스 공개가 자유로운 재배포 허가를 의미하지는 않습니다.
 
 Copyright © 2026 Sunrise Group. All rights reserved.
+
+## 1.1.0 전체 정상화 R01 후보
+기존 제품 기능과 버전 유지. 실제 패키지 기능검증 보고서의 EXE SHA-256 일치/필수검사 확인을 배포 단계에서 강제하며 dist에 함께 보관. 업데이트 후보는 GUI 시작 전 정확한 버전·프로토콜 응답을 확인하고, 배포 승인 도구는 구/신 EXE 각각의 기능검증 및 프로토콜 검증을 요구함. 새 판정 단위시험 14/14 PASS(공통 모듈/합성 데이터), 실제 control.py/release_feed.py 해시 일치 확인 후 버전별 정책·공지·업데이트 오프라인 시험 12/12 PASS. PyMuPDF 직접 OCG 합성 시험 4/4 PASS(전체 앱 경로 아님). 실제 Windows EXE 빌드/신뢰 서명/1.0.0→1.1.0 실기/중앙제어 UI 및 실물 도면 검증 NOT RUN. 기존 Release 태그·바이너리·main 운영 공지/업데이트 및 Control 설정을 변경하지 않음. 정상화 후보는 검증 후 공개 배포.
+
+
+## 업데이트 정책 보완 R03 (검증 대기)
+
+기존 정책 설명 중 WinVerifyTrust/동일 leaf 강제 판정은 R03에서 대체한다. 그룹 Authenticode 서명은 빌드 시 유지하고 실제 신뢰 상태는 기록한다. 앱 업데이트 및 배포 승인에서 Windows 공인 CA 신뢰/동일 인증서 강제 조건은 제거한다. 고정 HTTPS 제품 피드, SHA-256/크기, 허용된 URL, Control 정책, 버전 프로브, 사전 실행검사, 교체 직전 피드 재검증을 유지한다. 그룹 서명은 빌드 증거이며 런타임에 독립 암호학적 서명 확인을 하는 것은 아니다. 새 GUI 이벤트 루프 진입 뒤 해당 트랜잭션의 candidate/rollback만 정리한다. 정리 실패 시 진단 로그를 남기고 가능한 복구 파일을 보존한다. 기존 릴리즈 및 main 피드는 미변경. R03 Windows 빌드/실행/QA는 NOT RUN.
