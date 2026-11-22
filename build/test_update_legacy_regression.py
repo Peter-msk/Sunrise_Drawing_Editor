@@ -62,6 +62,25 @@ class LegacyUpdateContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_release(_feed('1.5.0', good, LOCAL_EXE_NAME), current='1.1.0')
 
+    def test_v150_approval_restores_group_signed_policy_without_disabling_hash_checks(self):
+        from build.approve_update import approved_metadata
+        url = release_download_urls('1.5.0')[0]
+        data = json.loads(_feed('1.5.0', url, ASSET_NAME))
+        release = {'tag_name': 'v1.5.0', 'draft': False, 'prerelease': False,
+                   'assets': [{'name': ASSET_NAME, 'state': 'uploaded',
+                               'size': 12345678, 'digest': 'sha256:' + SHA256,
+                               'browser_download_url': url}]}
+        active = approved_metadata(data, release, version='1.5.0', old_version='1.1.0',
+                                   sha=SHA256, size=12345678,
+                                   signature_trust='SELF_SIGNED_UNTRUSTED_TEST_ONLY')
+        self.assertEqual(active['signature_trust'], 'SELF_SIGNED_UNTRUSTED_TEST_ONLY')
+        self.assertTrue(active['automatic_update_available'])
+        release['assets'][0]['size'] = 12345679
+        with self.assertRaises(ValueError):
+            approved_metadata(data, release, version='1.5.0', old_version='1.1.0',
+                              sha=SHA256, size=12345678,
+                              signature_trust='SELF_SIGNED_UNTRUSTED_TEST_ONLY')
+
     def test_product_update_block_keeps_execution_allowed(self):
         policy = parse_control('''[global]\nschema_version=1\ndefault_operation=allow\ndefault_update=allow\n\n[product.sunrise_drawing_editor]\noperation=allow\nupdate=block\nminimum_version=\nmessage=검증 중 업데이트 차단\n''')
         self.assertFalse(policy.blocks_entry)

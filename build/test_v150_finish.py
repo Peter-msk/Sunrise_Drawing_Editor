@@ -165,11 +165,30 @@ class FinishTests(unittest.TestCase):
 
 # Separate class for the independent release trust contract.
 class ReleaseTrustPolicy(unittest.TestCase):
-    def test_v150_official_activation_rejects_selfsigned_even_with_matching_hash(self):
+    def test_v150_approval_uses_legacy_group_signed_contract(self):
         from build.approve_update import approved_metadata
-        with self.assertRaisesRegex(ValueError, '신뢰 서명'):
-            approved_metadata({}, {}, version='1.5.0', old_version='1.4.0',
-                              sha='a'*64, size=1,
+        from drawing_editor.release_feed import APP_ID, ASSET_NAME, RELEASES
+        url = RELEASES + '/download/v1.5.0/' + ASSET_NAME
+        d = {'app_id': APP_ID, 'latest_version': '1.5.0',
+             'download_file_name': ASSET_NAME, 'download_url': url,
+             'sha256': 'a'*64, 'file_size_bytes': 12345,
+             'schema_version': 1, 'platform': 'windows-x64',
+             'package_kind': 'onefile_exe', 'authenticode_required': True,
+             'release_url': RELEASES + '/tag/v1.5.0'}
+        release = {'tag_name': 'v1.5.0', 'draft': False, 'prerelease': False,
+                   'assets': [{'name': ASSET_NAME, 'state': 'uploaded',
+                               'size': 12345, 'digest': 'sha256:' + 'a'*64,
+                               'browser_download_url': url}]}
+        active = approved_metadata(d, release, version='1.5.0', old_version='1.4.0',
+                                   sha='a'*64, size=12345,
+                                   signature_trust='SELF_SIGNED_UNTRUSTED_TEST_ONLY')
+        self.assertTrue(active['automatic_update_available'])
+        self.assertEqual(active['signature_trust'], 'SELF_SIGNED_UNTRUSTED_TEST_ONLY')
+        self.assertEqual(active['signature_policy'], 'GROUP_SIGNED_AT_BUILD_FEED_SHA256')
+        release['assets'][0]['digest'] = 'sha256:' + 'b'*64
+        with self.assertRaises(ValueError):
+            approved_metadata(d, release, version='1.5.0', old_version='1.4.0',
+                              sha='a'*64, size=12345,
                               signature_trust='SELF_SIGNED_UNTRUSTED_TEST_ONLY')
 
     def test_legacy_trust_contract_not_silently_rewritten(self):
