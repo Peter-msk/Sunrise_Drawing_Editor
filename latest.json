@@ -11,12 +11,12 @@
   "authenticode_required": true,
   "release_url": "https://github.com/Peter-msk/Sunrise_Drawing_Editor/releases/tag/v1.5.0",
   "download_url": "https://github.com/Peter-msk/Sunrise_Drawing_Editor/releases/download/v1.5.0/Sunrise.Drawing.Editor.exe",
-  "sha256": null,
-  "file_size_bytes": null,
+  "sha256": "839f498eb26756d2d8ed688b374e7c1f085e11589a5368a66a47638d1ab85c4f",
+  "file_size_bytes": 73002472,
   "publisher": "Sunrise Group",
   "automatic_update_available": false,
   "update_mode": "user_approved_self_replace",
-  "release_notes": "조합 추출의 PNG/JPG·해상도·DPI·투명 배경·흰 여백 제거 옵션 일치, 분리 추출 트림 활성화, 실제 출력 조건 안내, 다크/라이트 팝업 UI 보완. Windows Qt/DPI/신뢰 서명 미검증으로 운영 자동 업데이트 비활성.",
+  "release_notes": "v1.5.0 R07 소스 기준본: 레이어 조합 추출, 화면 드래그 영역 선택, PNG/JPG 해상도·DPI, 투명 배경, 여백 제거, 폴더 일괄 처리. GitHub의 v1.5.0 실행파일은 R07 소스 최종 커밋보다 이전에 등록되었습니다. 최신 R07 실행파일 일치 및 Windows 신뢰 서명/QA 미검증으로 자동 업데이트는 활성화되지 않았습니다.",
   "source_version": "1.5.0",
   "source_status": "v1.5.0_R07_combination_ui_qa_pending",
   "source_baseline": "V1_5_0_R07_COMBINATION_OPTIONS_THEME_20261122",
@@ -24,5 +24,7 @@
   "download_file_name": "Sunrise.Drawing.Editor.exe",
   "notice_url": "https://raw.githubusercontent.com/Peter-msk/Sunrise_Drawing_Editor/main/notice.txt",
   "signature_policy": "INTERNAL_SELF_SIGNED_QA_OFFICIAL_TRUSTED_CA_REQUIRED",
-  "signature_trust": "NOT_BUILT"
+  "signature_trust": "UNVERIFIED_RELEASE_ASSET",
+  "release_verification_status": "PENDING_WINDOWS_SIGNING_QA_AND_R07_BINARY_PROVENANCE",
+  "release_tag_commit": "8821b424bb91f0a3da19e91abec6d7b112b19004"
 }
