@@ -104,6 +104,77 @@ def exercise(exe, root, worker=run_batch):
         require(x.format == y.format == 'PNG' and x.size == y.size, 'CAD image geometry mismatch')
         require(ImageChops.difference(x.convert('RGB'), y.convert('RGB')).getbbox() is not None, 'DXF layer did not change pixels')
     completed.append('dxf_batch_layer_toggle')
+    with Image.open(cad[0]['target']) as x, Image.open(cad[1]['target']) as y:
+        colors = x.convert('RGB').getcolors(400*400)
+        hidden = y.convert('RGB').getcolors(400*400)
+        require(colors is not None and any(r>g+80 and r>b+80 for _,(r,g,b) in colors), 'Original DXF red missing')
+        require(hidden is not None and not any(r>g+80 and r>b+80 for _,(r,g,b) in hidden), 'Hidden DXF red remains')
+    completed.append('dxf_original_color_pixels')
+    region = [dict(jobs[0], target=str(root / 'region.png'))]
+    worker(exe, root / 'region', region, {'fmt':'png','resolution':'custom','width':400,'height':400,
+                                          'region':[.25,.25,.75,.75]})
+    check_crop(Path(region[0]['target']), (400,400), (0,0,255))
+    completed.append('pdf_region_native_pixels')
+    # v1.4.0: require real native outputs; never treat PNG-in-PDF as vector.
+    native = [dict(jobs[0], target=str(root / 'native.pdf'))]
+    worker(exe, root / 'native-pdf', native, {'fmt':'pdf'})
+    with fitz.open(native[0]['target']) as output:
+        require(output.page_count == 1 and not output[0].get_images() and bool(output[0].get_drawings()), 'Native PDF paths missing')
+        require({k: bool(v['on']) for k,v in output.get_ocgs().items()} == jobs[0]['states'], 'Saved PDF OCG state mismatch')
+        pix = output[0].get_pixmap()
+        require(pix.pixel(10,10) == (255,255,255) and pix.pixel(150,150) == (0,0,255), 'PDF visibility pixels mismatch')
+    completed.append('pdf_native_vector_ocg')
+    svg = [dict(jobs[0], target=str(root / 'visible.svg'))]
+    worker(exe, root / 'native-svg', svg, {'fmt':'svg'})
+    import xml.etree.ElementTree as ET
+    svg_text = Path(svg[0]['target']).read_text(encoding='utf-8')
+    require(any(node.tag.endswith('}path') for node in ET.fromstring(svg_text).iter()) and '#0000ff' in svg_text and '#ff0000' not in svg_text, 'SVG visible paths mismatch')
+    completed.append('svg_visible_paths')
+    # Includes the default layers because native export requires complete state.
+    source_doc = ezdxf.readfile(source)
+    states = {str(layer.dxf.name): str(layer.dxf.name) == 'ROAD' for layer in source_doc.layers}
+    vector = [dict(cad[0], states=states, target=str(root / 'selected.dxf'))]
+    worker(exe, root / 'native-dxf', vector, {'fmt':'dxf'})
+    output = ezdxf.readfile(vector[0]['target'])
+    entities = list(output.modelspace())
+    require(len(entities) == 1 and entities[0].dxftype() == 'LWPOLYLINE' and entities[0].dxf.layer == 'ROAD', 'DXF selected entity mismatch')
+    require([tuple(p) for p in entities[0].get_points('xy')] == [(0,0),(100,0),(100,100),(0,100)], 'DXF coordinates mismatch')
+    require(output.units == source_doc.units and not output.audit().has_errors, 'DXF unit/structure mismatch')
+    completed.append('dxf_selected_coordinates')
+    # R03: exercise the compound object's native output in the same actual
+    # packaged worker path. Older 1.4.0 release evidence remains readable.
+    compound_source = root / 'compound.dxf'
+    compound = ezdxf.new('R2013')
+    compound.units = 6
+    compound.layers.new('ROAD')
+    compound.styles.get('Standard').dxf.font = 'custom.shx'
+    block = compound.blocks.new('SURVEY', base_point=(1, 2, 0))
+    block.block_record.dxf.units = 6
+    block.add_circle((3, 4), 2)
+    m = compound.modelspace()
+    m.add_blockref('SURVEY', (200000, 500000, 7), dxfattribs={'layer':'ROAD', 'rotation':35})
+    m.add_text('SURVEY', dxfattribs={'layer':'ROAD', 'insert':(200000, 500010)})
+    m.add_mtext('Survey\\Ppoint', dxfattribs={'layer':'ROAD'})
+    hatch = m.add_hatch(dxfattribs={'layer':'ROAD'})
+    hatch.set_pattern_fill('ANSI31', scale=2, angle=17)
+    hatch.paths.add_polyline_path([(0,0), (5,0), (5,5)], is_closed=True)
+    compound.saveas(compound_source)
+    originals[compound_source] = digest(compound_source)
+    compound_job = [{'source': str(compound_source), 'states': {str(l.dxf.name): True for l in compound.layers},
+                     'page_index': 0, 'target': str(root / 'compound-output.dxf')}]
+    worker(exe, root / 'compound-dxf', compound_job, {'fmt':'dxf'})
+    compound_output = ezdxf.readfile(compound_job[0]['target'])
+    from ezdxf.lldxf.tagwriter import TagCollector
+    def comparable(entity):
+        return [(tag.code, tag.value) for tag in TagCollector.dxftags(entity)
+                if tag.code not in (5, 330, 390, 347, 348)]
+    compound_input = ezdxf.readfile(compound_source)
+    require([comparable(e) for e in compound_input.modelspace()] == [comparable(e) for e in compound_output.modelspace()], 'Compound modelspace data mismatch')
+    require([comparable(e) for e in compound_input.blocks['SURVEY']] == [comparable(e) for e in compound_output.blocks['SURVEY']], 'Compound block data mismatch')
+    require(compound_output.blocks['SURVEY'].block_record.dxf.units == 6 and compound_output.styles.get('Standard').dxf.font == 'custom.shx', 'Compound resource mismatch')
+    audit = compound_output.audit()
+    require(not audit.has_errors and not audit.fixes, 'Compound output audit failed')
+    completed.append('dxf_compound_native')
     cancel = [dict(jobs[0], target=str(root / 'cancelled.png'))]
     worker(exe, root / 'cancel', cancel, {'fmt': 'png'}, cancel=True)
     require(not list(root.glob('.drawing-*')), 'Partial export remains')

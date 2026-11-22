@@ -233,7 +233,9 @@ def sign_and_verify(exe: Path) -> dict:
                             text=True, errors='replace', check=False)
     self_signed = cert.subject == cert.issuer
     if verify.returncode == 0:
-        trust = 'TRUSTED_BY_WINDOWS_POLICY'
+        # Even if an operator manually trusted a private root, it must never
+        # be presented as publicly trusted distribution signing.
+        trust = 'SELF_SIGNED_UNTRUSTED_TEST_ONLY' if self_signed else 'TRUSTED_BY_WINDOWS_POLICY'
     elif self_signed:
         output = verify.stdout.lower()
         expected_untrusted = (

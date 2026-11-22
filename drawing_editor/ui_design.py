@@ -59,3 +59,8 @@ THEMES = {
         hover='#3E3A37', selection='#4C3429', canvas='#101A29',
         primary='#B8480B', primary_hover='#91370A', active_text='#FFC49E'),
 }
+
+
+def stack_export_actions(window_width: int) -> bool:
+    """Keep path and both output actions reachable on narrow logical desktops."""
+    return window_width < 1120

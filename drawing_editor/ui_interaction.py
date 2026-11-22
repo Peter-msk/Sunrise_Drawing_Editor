@@ -108,3 +108,37 @@ def layer_search_feedback(query: str, matched: int,
     if editable <= 0:
         return False, '검색된 레이어가 모두 잠겨 있어 표시 상태를 변경할 수 없습니다.'
     return True, ''
+
+
+def viewport_region(page_size, clip):
+    """Convert the visible page-local intersection to displayed-page fractions."""
+    from math import isfinite
+    if clip is None or len(clip) != 4 or len(page_size) != 2:
+        return None
+    w, h = page_size
+    if not all(isfinite(v) for v in (*page_size, *clip)) or w <= 0 or h <= 0:
+        return None
+    x0, y0, x1, y1 = clip
+    r = (max(0., x0/w), max(0., y0/h), min(1., x1/w), min(1., y1/h))
+    return r if r[2]-r[0] >= 1e-6 and r[3]-r[1] >= 1e-6 else None
+
+
+def analysis_snapshot_is_current(doc, snapshot, documents):
+    """Reject results for removed, replaced or subsequently edited registrations."""
+    path, states, page, signature = snapshot
+    return (documents.get(path) is doc and doc.page_index == page
+            and doc.source_signature == signature and doc.states() == states)
+
+
+def export_action_state(*, busy: bool, cancel_requested: bool, ready: bool,
+                        analysis_busy: bool, count: int) -> tuple[bool, str]:
+    """A pending cancellation must never be re-enabled by selection refresh."""
+    if busy:
+        return not cancel_requested, '취소 요청됨' if cancel_requested else '추출 취소'
+    return ready and not analysis_busy, (f'{count}개 도면 추출' if count > 1 else '선택 도면 추출')
+
+
+def advanced_fields(fmt: str, scope: str, effect: str, viewport_available: bool) -> tuple[bool, bool, bool]:
+    """Visible range / region fields and availability of viewport capture."""
+    region = fmt == 'raster' and effect == 'region'
+    return scope == 'range', region, region and scope == 'current' and viewport_available

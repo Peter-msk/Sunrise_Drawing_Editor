@@ -24,6 +24,7 @@ from .release_feed import (APP_VERSION, LOCAL_EXE_NAME, ASSET_NAME, version_tupl
                            validated_download, fetch_text, parse_release)
 from .control import check_policy, ensure_update_allowed
 from .version_gate import verify_candidate_version
+from .update_policy import STAGE, STARTUP_PENDING
 
 EXE_NAME = LOCAL_EXE_NAME
 STAGE_PREFIX = '.sunrise-update-'
@@ -172,13 +173,21 @@ def stage_update(release, *, cancelled=None, progress=None):
             raise UpdateError('업데이트 취소')
         # Release authenticity follows the pinned HTTPS feed and exact byte digest.
         # Windows public-CA trust is not a product update condition.
-        verify_candidate_version(candidate, release.version, _independent_env())
+        try:
+            verify_candidate_version(candidate, release.version, _independent_env())
+        except subprocess.TimeoutExpired as exc:
+            raise UpdateError('신규 EXE 버전 응답 시간 초과') from exc
+        except ValueError as exc:
+            raise UpdateError('신규 EXE 버전 응답 불일치') from exc
         if cancelled and cancelled():
             raise UpdateError('업데이트 취소')
-        smoke = subprocess.run([str(candidate), '--self-test'], env=_independent_env(),
-                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                               stderr=subprocess.DEVNULL, timeout=120,
-                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        try:
+            smoke = subprocess.run([str(candidate), '--self-test'], env=_independent_env(),
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL, timeout=120,
+                                   creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        except subprocess.TimeoutExpired as exc:
+            raise UpdateError('신규 EXE 사전 실행검사 시간 초과') from exc
         if smoke.returncode:
             raise UpdateError('신규 EXE 사전 실행검사 실패')
         if cancelled and cancelled():
@@ -249,7 +258,7 @@ def apply_update(args):
     candidate = Path(sys.executable).resolve(strict=True)
     stage = candidate.parent
     if (candidate.name != 'candidate.exe' or stage.parent != target.parent
-            or not stage.name.startswith(STAGE_PREFIX)):
+            or not STAGE.fullmatch(stage.name) or set(stage.iterdir()) != {candidate}):
         raise UpdateError('허용되지 않은 업데이트 임시 경로')
     if digest(candidate) != new_sha or digest(target) != old_sha:
         raise UpdateError('실행파일 해시 불일치')
@@ -267,28 +276,51 @@ def apply_update(args):
             os.fsync(out.fileno())
     if digest(backup) != old_sha or digest(replacement) != new_sha:
         raise UpdateError('교체 전 복사본 무결성 오류')
-    # The PyInstaller parent bootloader can outlive its Python GUI process.
-    deadline = time.monotonic() + 60
-    while True:
-        try:
-            os.replace(replacement, target)
-            break
-        except PermissionError:
-            if time.monotonic() >= deadline:
-                raise UpdateError('기존 EXE가 잠겨 있어 교체하지 않았습니다.')
-            time.sleep(.5)
+    pending = stage / STARTUP_PENDING
+    with pending.open('x', encoding='ascii') as stream:
+        stream.write(new_sha)
+    _replace_with_retry(replacement, target)
     try:
         if digest(target) != new_sha:
             raise UpdateError('교체 후 EXE 무결성 오류')
-        subprocess.Popen([str(target), '--update-completed', str(stage), old_sha, new_sha],
-                         cwd=str(target.parent), env=_independent_env(),
-                         close_fds=True)
+        process = subprocess.Popen([str(target), '--update-completed', str(stage), old_sha, new_sha],
+                         cwd=str(target.parent), env=_independent_env(), close_fds=True)
     except BaseException:
-        os.replace(backup, target)
+        _rollback(backup, target, old_sha, new_sha)
         raise
-    # Replacement GUI removes verified rollback/helper only after it starts.
-    # Until that point the backup remains available.
+    # Do not confuse Popen success with GUI startup. A running but unresponsive
+    # process must NOT be killed or overwritten; leave its backup for recovery.
+    deadline = time.monotonic() + 120
+    while pending.exists():
+        if process.poll() is not None:
+            if not pending.exists():  # acknowledge/exit race
+                break
+            _rollback(backup, target, old_sha, new_sha)
+            raise UpdateError('신규 EXE가 정상 시작 전에 종료되어 이전 버전으로 복원했습니다.')
+        if time.monotonic() >= deadline:
+            raise UpdateError('신규 EXE 시작 확인 시간 초과; 롤백 파일 보존')
+        time.sleep(.25)
     return 0
+
+
+def _replace_with_retry(source, target, timeout=60):
+    # A PyInstaller parent bootloader can outlive its Python process.
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError as exc:
+            if time.monotonic() >= deadline:
+                raise UpdateError('실행파일 잠금으로 교체하지 못했습니다. 복구 파일 보존') from exc
+            time.sleep(.5)
+
+
+def _rollback(backup, target, old_sha, new_sha):
+    if digest(backup) != old_sha or digest(target) != new_sha:
+        raise UpdateError('롤백 무결성 조건 불일치; 복구 파일 보존')
+    _replace_with_retry(backup, target)
+
 
 
 def helper_main(args):

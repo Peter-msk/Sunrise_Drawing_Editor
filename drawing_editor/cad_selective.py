@@ -88,6 +88,25 @@ def _needs_objects(source: mmap.mmap, start: int, end: int) -> bool:
 _ENTITY_WRITE_CHUNK = 4 * 1024 * 1024
 
 
+def _write_span(destination, source: mmap.mmap, start: int, stop: int, *, cancelled=None):
+    """Copy mapped spans without allocating a bytes object for large sections."""
+    # Small disjoint entities benefit from the original cheap slice path.
+    if stop - start <= 64 * 1024:
+        if cancelled and cancelled():
+            raise SelectiveDXFCancelled()
+        data = source[start:stop]
+        if destination.write(data) != len(data):
+            raise OSError('Incomplete DXF staging write')
+        return
+    with memoryview(source) as view:
+        for offset in range(start, stop, _ENTITY_WRITE_CHUNK):
+            if cancelled and cancelled():
+                raise SelectiveDXFCancelled()
+            with view[offset:min(stop, offset + _ENTITY_WRITE_CHUNK)] as chunk:
+                if destination.write(chunk) != len(chunk):
+                    raise OSError('Incomplete DXF staging write')
+
+
 def _write_selected_entities(destination, source: mmap.mmap, records, *, cancelled=None) -> None:
     """Write byte-exact selected spans in CAD order, merging adjacent spans.
 
@@ -103,10 +122,10 @@ def _write_selected_entities(destination, source: mmap.mmap, records, *, cancell
             end = stop
             continue
         if begin is not None:
-            destination.write(source[begin:end])
+            _write_span(destination, source, begin, end, cancelled=cancelled)
         begin, end = start, stop
     if begin is not None:
-        destination.write(source[begin:end])
+        _write_span(destination, source, begin, end, cancelled=cancelled)
 
 
 class SelectiveDXFUnsupported(ValueError):
@@ -137,9 +156,11 @@ class VisibleDXFSource:
 
     def __init__(self, path: str | Path):
         self.path = Path(path)
+        self._signature = self._stat_signature()
         info = dxf_file_info(str(self.path))
         self.encoding = info.encoding
-        self._signature = self._stat_signature()
+        if self._stat_signature() != self._signature:
+            raise SelectiveDXFUnsupported('Source DXF changed during initialization')
         self._index: list[tuple[int, int, bytes, str]] | None = None
         # Small, ordered layer buckets: toggling only a few visible layers no
         # longer scans all 220k source records. Original mmap scanner retained
@@ -159,9 +180,9 @@ class VisibleDXFSource:
         self._block_defs: dict[bytes, tuple[int, int]] | None = None
         self._objects_section: tuple[int, int] | None = None
 
-    def _stat_signature(self) -> tuple[int, int]:
+    def _stat_signature(self) -> tuple[int, ...]:
         stat = self.path.stat()
-        return stat.st_size, stat.st_mtime_ns
+        return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
 
     def _scan(self, source: mmap.mmap, cancelled=None) -> None:
         # ASCII DXF produced by AutoCAD uses CRLF and fixed-width, three-char
@@ -441,10 +462,11 @@ class VisibleDXFSource:
                     self._scan(contents, cancelled=cancelled)
                 assert self._index is not None
                 if self._by_layer is not None:
-                    candidates = [entry for layer in visible
-                                  for entry in self._by_layer.get(layer, ())]
-                    if len(candidates) < len(self._index) // 3:
-                        selected = sorted(candidates, key=lambda e: e[0])
+                    selected_count = sum(len(self._by_layer.get(layer, ())) for layer in visible)
+                    if selected_count < len(self._index) // 3:
+                        selected = sorted((entry for layer in visible
+                                           for entry in self._by_layer.get(layer, ())),
+                                          key=lambda e: e[0])
                     else:
                         selected = [e for e in self._index if e[3] in visible]
                 else:
@@ -475,16 +497,16 @@ class VisibleDXFSource:
                         block_start, block_end = self._block_range
                         if not 0 < block_start < block_end < self._entity_start:
                             raise SelectiveDXFUnsupported('Unexpected BLOCKS section order')
-                        out.write(contents[:block_start])
+                        _write_span(out, contents, 0, block_start, cancelled=cancelled)
                         for name, (start, end) in sorted(
                             (item for item in self._block_defs.items()
                              if item[0] in block_selection),
                             key=lambda item: item[1][0]
                         ) if block_selection else ():
-                            out.write(contents[start:end])
-                        out.write(contents[block_end:self._entity_start])
+                            _write_span(out, contents, start, end, cancelled=cancelled)
+                        _write_span(out, contents, block_end, self._entity_start, cancelled=cancelled)
                     else:
-                        out.write(contents[:self._entity_start])
+                        _write_span(out, contents, 0, self._entity_start, cancelled=cancelled)
                     # Copy every original byte of every selected entity: no
                     # coordinate rounding, path simplifying or point omission.
                     if cancelled is None:
@@ -495,10 +517,10 @@ class VisibleDXFSource:
                         obj_start, obj_end = self._objects_section
                         if obj_start < self._entity_end or obj_end > len(contents):
                             raise SelectiveDXFUnsupported('Unexpected OBJECTS section location')
-                        out.write(contents[self._entity_end:obj_start])
-                        out.write(contents[obj_end:])
+                        _write_span(out, contents, self._entity_end, obj_start, cancelled=cancelled)
+                        _write_span(out, contents, obj_end, len(contents), cancelled=cancelled)
                     else:
-                        out.write(contents[self._entity_end:])
+                        _write_span(out, contents, self._entity_end, len(contents), cancelled=cancelled)
                     size = out.tell()
         if self._stat_signature() != self._signature:
             raise SelectiveDXFUnsupported('Source DXF changed while staging')

@@ -8,6 +8,7 @@ import time
 
 HEX = re.compile(r'[0-9a-f]{64}')
 STAGE = re.compile(r'\.sunrise-update-[a-z0-9_]{8}')
+STARTUP_PENDING = 'startup.pending'
 
 
 def _digest(path):
@@ -15,38 +16,68 @@ def _digest(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
-def cleanup_after_start(target, stage, old_sha, new_sha, *, timeout=120):
-    """Remove only this transaction's verified backup and temporary EXE.
-
-    Called after the replacement GUI enters its event loop. Keep rollback if
-    the helper is still locked or any identity/digest check fails.
-    """
+def _transaction(target, stage, old_sha, new_sha):
     if not (HEX.fullmatch(old_sha) and HEX.fullmatch(new_sha) and old_sha != new_sha):
-        return False
+        raise ValueError('Invalid transaction digest')
+    target, stage = Path(target).resolve(strict=True), Path(stage)
+    if (target.name.casefold() not in ('sunrise drawing editor.exe', 'sunrise.drawing.editor.exe')
+            or stage.resolve(strict=True) != stage or stage.parent != target.parent
+            or not STAGE.fullmatch(stage.name) or not stage.is_dir()):
+        raise ValueError('Invalid transaction path')
+    backup, candidate = stage / 'rollback.exe', stage / 'candidate.exe'
+    for item, expected in ((target, new_sha), (backup, old_sha)):
+        if item.resolve(strict=True) != item or not item.is_file() or _digest(item) != expected:
+            raise ValueError('Invalid transaction digest')
+    if candidate.exists() and (candidate.resolve(strict=True) != candidate or
+                               not candidate.is_file() or _digest(candidate) != new_sha):
+        raise ValueError('Invalid helper digest')
+    return target, stage, backup, candidate
+
+
+def acknowledge_start(target, stage, old_sha, new_sha):
+    """Acknowledge only a verified transaction after GUI event-loop entry.
+
+    R03 helpers did not create a marker; those transactions remain compatible.
+    """
     try:
-        target, stage = Path(target).resolve(strict=True), Path(stage)
-        if (target.name.casefold() not in ('sunrise drawing editor.exe', 'sunrise.drawing.editor.exe')
-                or stage.resolve(strict=True) != stage or stage.parent != target.parent
-                or not STAGE.fullmatch(stage.name) or not stage.is_dir()):
+        _, stage, backup, candidate = _transaction(target, stage, old_sha, new_sha)
+        pending = stage / STARTUP_PENDING
+        entries = set(stage.iterdir())
+        if not pending.exists():
+            return entries in ({backup, candidate}, {backup})
+        if (entries != {backup, candidate, pending} or pending.resolve(strict=True) != pending
+                or not pending.is_file() or pending.stat().st_size != 64
+                or pending.read_text(encoding='ascii') != new_sha):
             return False
-        backup, candidate = stage / 'rollback.exe', stage / 'candidate.exe'
-        for item, expected in ((target, new_sha), (backup, old_sha), (candidate, new_sha)):
-            if item.resolve(strict=True) != item or not item.is_file() or _digest(item) != expected:
-                return False
-        if set(stage.iterdir()) != {backup, candidate}:
+        pending.unlink()
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def cleanup_after_start(target, stage, old_sha, new_sha, *, timeout=120):
+    """Remove verified helper first, then backup, without touching other files.
+
+    Accept a missing helper after partial cleanup; never delete a pending
+    startup marker or any unknown file. Retry Windows file locks.
+    """
+    try:
+        target, stage, backup, candidate = _transaction(target, stage, old_sha, new_sha)
+        if set(stage.iterdir()) not in ({backup, candidate}, {backup}):
             return False
     except (OSError, ValueError):
         return False
     deadline = time.monotonic() + timeout
     while True:
         try:
-            # Delete helper first: its PyInstaller bootloader may still hold it.
             if _digest(target) != new_sha or _digest(backup) != old_sha:
                 return False
             if candidate.exists():
                 if _digest(candidate) != new_sha:
                     return False
                 candidate.unlink()
+            if set(stage.iterdir()) != {backup}:
+                return False
             backup.unlink()
             stage.rmdir()
             return True

@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from drawing_editor.update_policy import cleanup_after_start
+from drawing_editor.update_policy import cleanup_after_start, acknowledge_start, STARTUP_PENDING
 
 
 class CleanupTests(unittest.TestCase):
@@ -69,6 +69,27 @@ class CleanupTests(unittest.TestCase):
             self.assertTrue(self.old.exists())
             self.assertTrue(self.new.exists())
 
+
+    def test_startup_marker_must_be_acknowledged_before_cleanup(self):
+        marker = self.stage / STARTUP_PENDING
+        marker.write_text(self.new_sha, encoding='ascii')
+        self.assertFalse(self.clean())
+        self.assertTrue(self.old.exists())
+        self.assertTrue(acknowledge_start(self.target, self.stage, self.old_sha, self.new_sha))
+        self.assertFalse(marker.exists())
+        self.assertTrue(self.clean())
+
+    def test_invalid_marker_keeps_backup(self):
+        marker = self.stage / STARTUP_PENDING
+        marker.write_text('x'*64, encoding='ascii')
+        self.assertFalse(acknowledge_start(self.target, self.stage, self.old_sha, self.new_sha))
+        self.assertTrue(self.old.exists())
+        self.assertTrue(marker.exists())
+
+    def test_partial_cleanup_resumes(self):
+        self.new.unlink()
+        self.assertTrue(acknowledge_start(self.target, self.stage, self.old_sha, self.new_sha))
+        self.assertTrue(self.clean())
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

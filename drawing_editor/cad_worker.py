@@ -123,7 +123,7 @@ class _CADSession:
                 return
         self._reap()
 
-    def render(self, mode, source, states, page_index, preview_size, clip, cancelled):
+    def render(self, mode, source, states, page_index, preview_size, clip, cancelled, expected_source=None):
         from .core import DrawingError, RenderCancelled
         if self.closed:
             raise RenderCancelled("미리보기 중단됨")
@@ -141,9 +141,10 @@ class _CADSession:
         pending_path = self.folder / f".request-{key}.tmp"
         payload = {
             "id": key, "mode": mode, "path": str(source),
-            "states": dict(states), "page": int(page_index),
+            "states": dict(states), "page": page_index,
             "size": list(preview_size),
             "clip": list(clip) if clip is not None else None,
+            "source_signature": expected_source,
         }
         try:
             pending_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
@@ -159,6 +160,11 @@ class _CADSession:
                     response = json.loads(response_path.read_text(encoding="utf-8"))
                     if not response.get("ok"):
                         raise DrawingError("CAD 렌더 프로세스 오류: " + str(response.get("error", "unknown")))
+                    if mode == 'inspect':
+                        report = response.get('report')
+                        if not isinstance(report, dict):
+                            raise DrawingError('원본 분석 응답이 유효하지 않습니다.')
+                        return report
                     length = image_path.stat().st_size
                     if not 0 < length <= MAX_RESULT_BYTES:
                         raise DrawingError("CAD 미리보기 크기가 안전 제한을 초과했습니다.")
@@ -173,6 +179,8 @@ class _CADSession:
                         return data, (float(geometry[0]), float(geometry[1]))
                     return data
                 if self.proc.poll() is not None:
+                    if response_path.is_file():
+                        continue
                     self.close()
                     raise DrawingError("CAD 렌더 하위 프로세스가 응답 없이 종료되었습니다.")
                 if time.monotonic() >= deadline:
@@ -195,36 +203,34 @@ class _CADSession:
 
 
 def render_isolated(mode: str, source: str, states: dict, page_index: int,
-                    preview_size: tuple[int, int], *, clip=None, cancelled=None):
-    """Call from the SINGLE preview QRunnable worker, never from the GUI thread."""
-    if mode not in ("preview", "detail"):
-        raise ValueError("Only native preview/detail may run in a child process")
-    from .core import RenderCancelled
+                    preview_size: tuple[int, int], *, clip=None, cancelled=None, expected_source=None):
+    """Call from an owning background worker, never from the GUI thread."""
+    if mode not in ("preview", "detail", "inspect"):
+        raise ValueError("Unsupported native worker mode")
+    from .core import RenderCancelled, source_signature, verify_source
     if cancelled is not None and cancelled():
         raise RenderCancelled("미리보기 중단됨")
     # Reuse a native CAD worker only for an identical source revision.
     # A different 400MiB DXF or a file modified at the same pathname must
     # not inherit decoded CAD/MuPDF state from the previous source.
     source_path = Path(source).expanduser().resolve()
-    try:
-        source_stat = source_path.stat()
-        source_signature = (str(source_path), source_stat.st_size,
-                            source_stat.st_mtime_ns)
-    except OSError:
-        source_signature = (str(source_path), None, None)
+    verify_source(source_path, expected_source)
+    signature = (str(source_path), source_signature(source_path))
     session = getattr(_THREAD, "session", None)
     if session is not None and (session.closed
                                 or session.proc.poll() is not None
-                                or session.source_signature != source_signature):
+                                or session.source_signature != signature):
         session.close(background=not session.closed)
         _THREAD.session = None
         session = None
     if session is None:
         session = _CADSession()
-        session.source_signature = source_signature
+        session.source_signature = signature
         _THREAD.session = session
     try:
-        return session.render(mode, source, states, page_index, preview_size, clip, cancelled)
+        result = session.render(mode, source, states, page_index, preview_size, clip, cancelled, expected_source)
+        verify_source(source_path, expected_source)
+        return result
     except Exception:
         # A child error can leave its thread-local DrawingDocument or IPC
         # transaction in an unknown state. Never reuse that worker on retry.
@@ -232,6 +238,14 @@ def render_isolated(mode: str, source: str, states: dict, page_index: int,
         session.close()
         _THREAD.session = None
         raise
+
+
+def close_thread_worker():
+    """Release only the current thread's native process."""
+    session = getattr(_THREAD, "session", None)
+    _THREAD.session = None
+    if session is not None:
+        session.close()
 
 
 def shutdown_all_workers(*, background=False):
@@ -281,26 +295,39 @@ def worker_main(argv=None) -> int:
                 # JSON object property names are strings. PDF OCG xref keys
                 # MUST remain integers or every toggle gets silently ignored
                 # in DrawingDocument.apply_snapshot().
+                if not isinstance(states, dict) or any(type(value) is not bool for value in states.values()):
+                    raise ValueError("Invalid layer visibility state")
+                if type(req["page"]) is not int:
+                    raise ValueError("Invalid page index")
                 if Path(req["path"]).suffix.casefold() == ".pdf":
-                    states = {int(key): bool(value)
-                              for key, value in states.items()}
-                if req["mode"] == "preview":
-                    pixels, geometry = preview_snapshot(
-                        req["path"], states, int(req["page"]), tuple(size))
-                elif req["mode"] == "detail":
-                    clip = req["clip"]
-                    if not (isinstance(clip, list) and len(clip) == 4):
-                        raise ValueError("Invalid CAD clip")
-                    pixels = render_snapshot(req["path"], states,
-                                             int(req["page"]), tuple(size), clip=tuple(clip))
-                    geometry = None
+                    decoded = {int(key): value for key, value in states.items()}
+                    if len(decoded) != len(states):
+                        raise ValueError("Duplicate PDF layer key")
+                    states = decoded
+                signature = req.get("source_signature")
+                expected = tuple(signature) if signature is not None else None
+                if req["mode"] == "inspect":
+                    from .drawing_analysis import inspect_source
+                    report = inspect_source((req['path'], states, req['page'], expected))
+                    answer = {'ok': True, 'report': report}
                 else:
-                    raise ValueError("Unsupported CAD worker mode")
-                if not 0 < len(pixels) <= MAX_RESULT_BYTES:
-                    raise ValueError("Invalid CAD PNG size")
-                image_path.write_bytes(pixels)
-                answer = {"ok": True, "geometry": geometry,
-                          "elapsed_ms": round((time.monotonic() - started) * 1000)}
+                    if req["mode"] == "preview":
+                        pixels, geometry = preview_snapshot(
+                            req["path"], states, req["page"], tuple(size), expected_source=expected)
+                    elif req["mode"] == "detail":
+                        clip = req["clip"]
+                        if not (isinstance(clip, list) and len(clip) == 4):
+                            raise ValueError("Invalid CAD clip")
+                        pixels = render_snapshot(req["path"], states,
+                                                 req["page"], tuple(size), clip=tuple(clip), expected_source=expected)
+                        geometry = None
+                    else:
+                        raise ValueError("Unsupported CAD worker mode")
+                    if not 0 < len(pixels) <= MAX_RESULT_BYTES:
+                        raise ValueError("Invalid CAD PNG size")
+                    image_path.write_bytes(pixels)
+                    answer = {"ok": True, "geometry": geometry,
+                              "elapsed_ms": round((time.monotonic() - started) * 1000)}
             except Exception as exc:
                 try:
                     image_path.unlink(missing_ok=True)

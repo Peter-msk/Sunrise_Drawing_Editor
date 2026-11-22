@@ -30,6 +30,17 @@ class DrawingError(Exception):
     """User-visible document, render or save error."""
 
 
+def source_signature(path):
+    """Low-cost file identity, not a cryptographic content fingerprint."""
+    stat = Path(path).stat()
+    return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+
+
+def verify_source(path, expected):
+    if expected is not None and source_signature(path) != expected:
+        raise DrawingError('원본 도면이 변경되었습니다. 도면을 다시 불러오세요.')
+
+
 class RenderCancelled(DrawingError):
     """Preview was superseded or stopped; do not report as a render failure."""
 
@@ -122,10 +133,20 @@ class OutputOptions:
     background: str = "opaque"  # opaque (compatible default) | transparent (PNG only)
     crop_margins: bool = False  # optional visual PNG paper trim; source unchanged
 
+    region: tuple[float, float, float, float] | None = None  # PDF displayed page fractions
+
     def checked(self) -> "OutputOptions":
-        if self.fmt not in {"png", "jpg"}:
-            raise DrawingError("지원하는 출력 형식은 PNG 또는 JPG입니다.")
-        if self.background not in {"opaque", "transparent"}:
+        if self.region is not None:
+            r = self.region
+            if (not isinstance(r, (tuple, list)) or len(r) != 4 or
+                    any(type(v) not in (int, float) or not 0 <= v <= 1 for v in r) or
+                    not (r[2]-r[0] >= 1e-6 and r[3]-r[1] >= 1e-6)):
+                raise DrawingError('영역은 0~100% 내의 유효한 사각형이어야 합니다.')
+            if self.crop_margins:
+                raise DrawingError('지정 영역과 자동 여백 제거는 함께 사용할 수 없습니다.')
+        if not isinstance(self.fmt, str) or self.fmt not in {"png", "jpg", "pdf", "svg", "dxf"}:
+            raise DrawingError("지원하는 출력 형식은 PNG, JPG, PDF, SVG, DXF입니다.")
+        if not isinstance(self.background, str) or self.background not in {"opaque", "transparent"}:
             raise DrawingError("지원하지 않는 배경 설정입니다.")
         if type(self.crop_margins) is not bool:
             raise DrawingError("도면 외곽 여백 제거 옵션은 참/거짓이어야 합니다.")
@@ -133,8 +154,13 @@ class OutputOptions:
             raise DrawingError("도면 외곽 여백 제거는 PNG 출력에서만 지원합니다.")
         if self.background == "transparent" and self.fmt != "png":
             raise DrawingError("투명 배경은 PNG 이미지에서만 사용할 수 있습니다.")
-        if self.resolution not in {"original", "custom", "dpi", *EXPORT_PRESETS}:
+        if not isinstance(self.resolution, str) or self.resolution not in {"original", "custom", "dpi", *EXPORT_PRESETS}:
             raise DrawingError("지원하지 않는 이미지 해상도 설정입니다.")
+        if self.fmt in {"pdf", "svg", "dxf"} and (
+                self.resolution != "original" or self.width is not None or self.height is not None or
+                self.dpi is not None or self.background != "opaque" or self.crop_margins or
+                self.region is not None):
+            raise DrawingError('벡터 출력에는 래스터 해상도·배경·영역 지정을 적용할 수 없습니다.')
         if self.resolution == "custom":
             if (type(self.width) is not int or type(self.height) is not int
                     or not 1 <= self.width <= 2_147_483_647
@@ -146,10 +172,34 @@ class OutputOptions:
         return self
 
 
+class _RegionPage:
+    """Read-only local-coordinate view; native clipped renders, not screenshot cropping."""
+    def __init__(self, page, fractions):
+        bounds = page.rect
+        x0, y0, x1, y1 = fractions
+        self._page = page
+        self._clip = fitz.Rect(bounds.x0+x0*bounds.width, bounds.y0+y0*bounds.height,
+                               bounds.x0+x1*bounds.width, bounds.y0+y1*bounds.height)
+        self.rect = fitz.Rect(0, 0, self._clip.width, self._clip.height)
+
+    def get_pixmap(self, *, matrix, clip=None, **kwargs):
+        # Translate source coordinates into a zero-origin output grid, including
+        # fractional clips and rotated pages. Existing tiled exporter uses rect.
+        c = self.rect if clip is None else fitz.Rect(clip) & self.rect
+        c = fitz.Rect(c.x0+self._clip.x0, c.y0+self._clip.y0,
+                      c.x1+self._clip.x0, c.y1+self._clip.y0)
+        m = fitz.Matrix(1, 0, 0, 1, -self._clip.x0, -self._clip.y0) * matrix
+        return self._page.get_pixmap(matrix=m, clip=c, **kwargs)
+
+
 def _export_pixel_dimensions(page: fitz.Page, options: OutputOptions) -> tuple[int, int, int]:
     """Resolve full-page dimensions; do not affect viewport/preview rendering."""
     options.checked()
     if options.resolution == "original":
+        if isinstance(page, _RegionPage):
+            w, h, dpi = _pixel_dimensions(page._page)
+            return (max(1, round(w*page.rect.width/page._page.rect.width)),
+                    max(1, round(h*page.rect.height/page._page.rect.height)), dpi)
         return _pixel_dimensions(page)
     rect = page.rect
     if rect.is_empty or rect.width <= 0 or rect.height <= 0:
@@ -266,6 +316,7 @@ class DrawingDocument:
             raise DrawingError(f"지원하지 않는 도면 형식: {self.path.suffix}")
         if not self.path.is_file():
             raise DrawingError(f"도면 파일을 찾지 못했습니다: {self.path}")
+        self.source_signature = source_signature(self.path)
         self._pdf: fitz.Document | None = None
         # Ambiguous OCG names require an isolated serialized PDF after a
         # visibility change. Do not serialize the original on first preview;
@@ -325,6 +376,7 @@ class DrawingDocument:
                 self._read_pdf()
             else:
                 self._read_cad()
+            verify_source(self.path, self.source_signature)
             self._original = self.states()
         except Exception as exc:
             self.close()
@@ -488,6 +540,8 @@ class DrawingDocument:
 
     def apply_snapshot(self, states: dict[int | str, bool]):
         """Batch state changes: one apply for a snapshot, never per-layer parsing."""
+        if states == self._states:
+            return  # unchanged full snapshot: avoid copying and walking every layer again
         previous = self.states()
         for key, value in states.items():
             if key in self._states and key not in self._locked:
@@ -744,8 +798,8 @@ class DrawingDocument:
             configuration = Configuration(background_policy=BackgroundPolicy.OFF,
                                           color_policy=ColorPolicy.COLOR)
             self._check_preview_cancel()
-            Frontend(RenderContext(self._cad), backend, config=configuration).draw_layout(
-                self._cad.modelspace())
+            frontend = Frontend(RenderContext(self._cad), backend, config=configuration)
+            frontend.draw_layout(self._cad.modelspace())
             self._check_preview_cancel()
             geometry = backend.player().bbox()
             self._check_preview_cancel()
@@ -995,6 +1049,8 @@ class DrawingDocument:
                      preview: tuple[int, int] | None = None,
                      clip: tuple[float,float,float,float] | None = None) -> bytes:
         opts = (options or OutputOptions()).checked()
+        if opts.fmt not in ("png", "jpg"):
+            raise DrawingError("벡터 출력은 독립 출력 작업을 사용하세요.")
         cache_key = None
         if preview is not None and opts.fmt == 'png':
             cache_key = (self.page_index, tuple(self._states.items()), preview, clip,
@@ -1057,6 +1113,8 @@ class DrawingDocument:
 
     def export_dimensions(self, options: OutputOptions | None = None) -> tuple[int, int, int]:
         opts = (options or OutputOptions()).checked()
+        if opts.fmt not in ("png", "jpg"):
+            raise DrawingError("벡터 출력은 독립 출력 작업을 사용하세요.")
         temp, page = self._get_page_context()
         try:
             if page is None:
@@ -1066,6 +1124,9 @@ class DrawingDocument:
                     page = blank.new_page(width=1600 * 72 / VECTOR_EXPORT_DPI,
                                           height=1000 * 72 / VECTOR_EXPORT_DPI)
                     return _export_pixel_dimensions(page, opts)
+            if opts.region is not None:
+                if self.kind != 'pdf': raise DrawingError('지정 영역 추출은 PDF만 지원합니다.')
+                page = _RegionPage(page, opts.region)
             return _export_pixel_dimensions(page, opts)
         finally:
             if temp is not None:
@@ -1083,18 +1144,26 @@ class DrawingDocument:
 
     def export_image(self, dest: str | Path, options: OutputOptions,
                      progress: Callable[[float],None] | None = None,
-                     cancelled: Callable[[],bool] | None = None) -> Path:
+                     cancelled: Callable[[],bool] | None = None,
+                     source_guard=None) -> Path:
         opts = options.checked()
-        target = Path(dest).expanduser().resolve()
+        if opts.fmt not in ("png", "jpg"):
+            raise DrawingError("벡터 출력은 독립 출력 작업을 사용하세요.")
+        requested = Path(dest).expanduser()
+        target = requested.parent.resolve() / requested.name
         if target.suffix.lower() != '.'+opts.fmt:
             raise DrawingError(f'확장자는 .{opts.fmt}이어야 합니다.')
         if not target.parent.is_dir():
             raise DrawingError('저장 폴더가 없습니다.')
-        if target.exists():
+        if os.path.lexists(target):
             raise DrawingError('같은 이름의 결과물이 있습니다. 덮어쓰지 않습니다.')
         temporary, tempdoc = None,None
         try:
+            if opts.region is not None and self.kind != 'pdf':
+                raise DrawingError('지정 영역 추출은 PDF만 지원합니다.')
             tempdoc,page = self._get_page_context()
+            if opts.region is not None:
+                page = _RegionPage(page, opts.region)
             with tempfile.NamedTemporaryFile(prefix=f'.drawing-{os.getpid()}-', suffix='.'+opts.fmt,
                                              dir=target.parent, delete=False) as fp:
                 temporary=Path(fp.name)
@@ -1218,10 +1287,12 @@ class DrawingDocument:
                         save_jpg_tiled(page,temporary,width,height,dpi,progress=progress,cancelled=cancelled)
             if cancelled and cancelled():
                 raise InterruptedError('이미지 추출이 취소되었습니다.')
+            if source_guard is not None:
+                source_guard()
             os.link(temporary,target)  # atomic no-overwrite
             return target
-        except InterruptedError as exc:
-            raise DrawingError(str(exc)) from exc
+        except InterruptedError:
+            raise
         except (OSError,ValueError,MemoryError) as exc:
             raise DrawingError(f'대용량 출력 실패: {exc} (저장 공간과 시스템 메모리를 확인하세요.)') from exc
         finally:
@@ -1284,8 +1355,8 @@ def close_thread_document() -> None:
 
 def _thread_document(path: str) -> DrawingDocument:
     normalized = str(Path(path).expanduser().resolve())
-    stat = Path(normalized).stat()
-    signature = (normalized, stat.st_size, stat.st_mtime_ns)
+    # A single cached document, isolated by source revision.
+    signature = (normalized, source_signature(normalized))
     if getattr(_cache, "signature", None) != signature:
         previous = getattr(_cache, "document", None)
         # Invalidate before closing. A failed PDF open must not leave a closed
@@ -1300,42 +1371,104 @@ def _thread_document(path: str) -> DrawingDocument:
     return _cache.document
 
 
+def _validate_snapshot(doc, states, page_index, expected_source):
+    if type(page_index) is not int or not 0 <= page_index < doc.pages:
+        raise DrawingError('페이지 범위가 변경되었거나 유효하지 않습니다.')
+    if not isinstance(states, dict) or any(type(flag) is not bool for flag in states.values()):
+        raise DrawingError('레이어 상태는 참/거짓이어야 합니다.')
+    if expected_source is not None:
+        verify_source(doc.path, expected_source)
+        if doc._states.keys() != states.keys() or any(
+                states[key] != doc._states[key] for key in doc._locked):
+            raise DrawingError('원본 레이어 정보가 변경되었습니다. 다시 불러오세요.')
+
+
 def render_snapshot(path: str, states: dict[int | str, bool], page_index: int,
                     preview_size: tuple[int, int],
                     clip: tuple[float,float,float,float] | None = None,
-                    *, cancelled=None) -> bytes:
+                    *, cancelled=None, expected_source=None) -> bytes:
     if cancelled and cancelled():
         raise RenderCancelled('미리보기 중단됨')
+    verify_source(path, expected_source)
     doc = _thread_document(path)
     doc._preview_cancelled = cancelled
     try:
         doc._check_preview_cancel()
+        _validate_snapshot(doc, states, page_index, expected_source)
         doc.apply_snapshot(states)
         doc.page_index = page_index
         result = doc.render_bytes(OutputOptions('png'), preview=preview_size, clip=clip)
         doc._check_preview_cancel()
+        verify_source(path, expected_source)
         return result
+    except Exception:
+        close_thread_document()
+        raise
     finally:
         doc._preview_cancelled = None
 
 
 def export_snapshot(path: str, states: dict[int | str, bool], page_index: int,
-                    destination: str, options: OutputOptions, progress=None, cancelled=None) -> str:
-    doc = _thread_document(path)
-    doc.apply_snapshot(states)
-    doc.page_index = page_index
-    return str(doc.export_image(destination, options, progress=progress, cancelled=cancelled))
+                    destination: str, options: OutputOptions, progress=None, cancelled=None,
+                    expected_source=None) -> str:
+    if cancelled and cancelled():
+        raise InterruptedError('이미지 추출이 취소되었습니다.')
+    # Legacy/private callers may omit the registration stamp. Still freeze the
+    # actual source revision before opening it; do not publish a stale image.
+    guard = expected_source if expected_source is not None else source_signature(path)
+    def checkpoint():
+        if cancelled and cancelled():
+            raise InterruptedError('이미지 추출이 취소되었습니다.')
+        verify_source(path, guard)
+
+    checkpoint()
+    doc = None
+    try:
+        options.checked()
+        if options.fmt not in ('png', 'jpg'):
+            from .vector_export import export_vector_snapshot
+            close_thread_document()  # do not retain a raster parser during vector export
+            return export_vector_snapshot(path, states, page_index, destination, options,
+                                          progress=progress, cancelled=cancelled, expected_source=guard)
+        doc = _thread_document(path)
+        doc._preview_cancelled = cancelled
+        checkpoint()
+        _validate_snapshot(doc, states, page_index, expected_source)
+        doc.apply_snapshot(states)
+        doc.page_index = page_index
+        checkpoint()
+        return str(doc.export_image(destination, options, progress=progress,
+                                    cancelled=cancelled, source_guard=checkpoint))
+    except RenderCancelled as exc:
+        close_thread_document()
+        raise InterruptedError(str(exc)) from exc
+    except Exception:
+        # Native OCG changes can fail halfway through a snapshot. Do not reuse
+        # a possibly inconsistent parser for the next job.
+        close_thread_document()
+        raise
+    finally:
+        if doc is not None:
+            doc._preview_cancelled = None
 
 
 def preview_snapshot(path: str, states: dict[int | str,bool], page_index: int,
-                     preview_size: tuple[int,int], *, cancelled=None) -> tuple[bytes, tuple[float,float]]:
+                     preview_size: tuple[int,int], *, cancelled=None, expected_source=None) -> tuple[bytes, tuple[float,float]]:
     """Fetch preview + page geometry from the SAME document/render context."""
     if cancelled and cancelled():
         raise RenderCancelled('미리보기 중단됨')
+    verify_source(path, expected_source)
     doc = _thread_document(path)
     doc._preview_cancelled = cancelled
     try:
-        return _preview_snapshot_active(doc, states, page_index, preview_size)
+        _validate_snapshot(doc, states, page_index, expected_source)
+        result = _preview_snapshot_active(doc, states, page_index, preview_size)
+        doc._check_preview_cancel()
+        verify_source(path, expected_source)
+        return result
+    except Exception:
+        close_thread_document()
+        raise
     finally:
         doc._preview_cancelled = None
 

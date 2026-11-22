@@ -58,7 +58,8 @@ def run_batch_exports_isolated(jobs, options, *, progress=None, cancelled=None):
         _atomic_json(folder / "request.json", {
             "options": asdict(options),
             "jobs": [{"source": job.source, "states": job.states,
-                      "page_index": job.page_index, "target": job.target}
+                      "page_index": job.page_index, "target": job.target,
+                      "source_signature": job.source_signature}
                      for job in jobs],
         })
         command, settings = _command(folder)
@@ -68,7 +69,7 @@ def run_batch_exports_isolated(jobs, options, *, progress=None, cancelled=None):
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 close_fds=True, **settings)
         except OSError as exc:
-            raise DrawingError(f"이미지 추출 하위 프로세스를 시작할 수 없습니다: {exc}") from exc
+            raise DrawingError(f"도면 출력 하위 프로세스를 시작할 수 없습니다: {exc}") from exc
         last_progress = None
         cancel_since = None
         try:
@@ -99,10 +100,14 @@ def run_batch_exports_isolated(jobs, options, *, progress=None, cancelled=None):
                                        tuple(tuple(row) for row in payload["errors"]),
                                        bool(payload["cancelled"]))
                 if process.poll() is not None:
-                    raise DrawingError("이미지 추출 하위 프로세스가 완료 응답 없이 종료되었습니다.")
+                    # A child can publish result.json and exit between the first
+                    # existence test and poll(). Re-read the authoritative result.
+                    if response_file.is_file():
+                        continue
+                    raise DrawingError("도면 출력 하위 프로세스가 완료 응답 없이 종료되었습니다.")
                 if (cancel_since is not None
                         and time.monotonic() - cancel_since > _CANCEL_GRACE_SECONDS):
-                    raise InterruptedError("이미지 추출 취소됨: 하위 프로세스 강제 종료")
+                    raise InterruptedError("도면 출력 취소됨: 하위 프로세스 강제 종료")
                 time.sleep(_POLL_SECONDS)
         finally:
             if process.poll() is None:
@@ -140,7 +145,13 @@ def worker_main(argv=None) -> int:
         return 2
     output = folder / "result.json"
     try:
-        request = json.loads((folder / "request.json").read_text(encoding="utf-8"))
+        def unique(pairs):
+            value = dict(pairs)
+            if len(value) != len(pairs):
+                raise ValueError("Duplicate batch request JSON key")
+            return value
+        request = json.loads((folder / "request.json").read_text(encoding="utf-8"),
+                             object_pairs_hook=unique)
         options = OutputOptions(**request["options"]).checked()
         jobs = []
         for item in request["jobs"]:
@@ -149,19 +160,32 @@ def worker_main(argv=None) -> int:
             # silently falls back to the source PDF's original layer state.
             states = item["states"]
             if Path(item["source"]).suffix.casefold() == ".pdf":
-                states = {int(key): bool(value) for key, value in states.items()}
+                decoded = {int(key): value for key, value in states.items()}
+                if len(decoded) != len(states):
+                    raise ValueError("Duplicate PDF layer key")
+                states = decoded
             jobs.append(ExportJob(item["source"], states,
-                                  int(item["page_index"]), item["target"]))
+                                  item["page_index"], item["target"],
+                                  tuple(item["source_signature"]) if item.get("source_signature") is not None else None))
         cancel_flag = folder / "cancel.flag"
-        last_update = [0.0]
+        last_update = float('-inf')
 
         def report(index, total, fraction, name):
+            nonlocal last_update
             now = time.monotonic()
-            if fraction == 0.0 or fraction >= 1.0 or now - last_update[0] > 0.15:
-                last_update[0] = now
+            # A fast batch may complete many files before the GUI's next poll.
+            # The final result is authoritative; progress is only telemetry.
+            if index < total and now - last_update < 0.15:
+                return
+            last_update = now
+            try:
                 _atomic_json(folder / "progress.json", {
                     "index": index, "total": total,
                     "fraction": fraction, "name": name})
+            except OSError:
+                # Windows reader/antivirus may temporarily lock this file.
+                # Failure to report progress must not abort a valid export.
+                pass
 
         result = run_batch_exports(
             jobs, options, progress=report, cancelled=cancel_flag.exists)

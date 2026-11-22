@@ -44,7 +44,7 @@ def publish(exe: Path, destination: Path) -> None:
         raise RuntimeError('Post-sign EXE smoke test did not match signed EXE hash.')
     if smoke.get('version_resource') != expected_version():
         raise RuntimeError('Post-sign Windows version resource attestation missing or mismatched.')
-    functional_qa = read_functional_qa(exe.parent / 'FUNCTIONAL_QA.json', sha256)
+    functional_qa = read_functional_qa(exe.parent / 'FUNCTIONAL_QA.json', sha256, version=expected_version()['strings']['ProductVersion'], extraction_only=True)
     from cryptography.hazmat.primitives import hashes
     thumbprint = report.get('certificate_thumbprint_sha1')
     if not any(signer_cn(cert) == 'Sunrise Group' and

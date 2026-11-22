@@ -2,6 +2,7 @@
 from __future__ import annotations
 import mmap
 import os
+import shutil
 import struct
 import tempfile
 import zlib
@@ -20,6 +21,10 @@ def _check(cancelled):
 def raster_stripes(page, width, height, *, edge=512, progress=None,
                    cancelled=None, transparent=False):
     """Assemble RGB or RGBA scanline strips from clipped page renders."""
+    channels = 4 if transparent else 3
+    budget = 12_000_000  # bounded per-render allocation, not output file cap
+    if width <= 0 or height <= 0 or width * channels > budget:
+        raise ValueError("출력 가로 크기가 분할 렌더링의 안전한 행 메모리 한도를 초과합니다.")
     rect = page.rect
     # Exactly match requested raster dimensions on both axes. A single
     # min() scale causes 1px gaps on fractional or rotated PDF page sizes.
@@ -41,8 +46,6 @@ def raster_stripes(page, width, height, *, edge=512, progress=None,
     # The old implementation rendered a 512px-wide tile for every x position,
     # repeating PDF display-list traversal many times per stripe. For an A3
     # drawing at ~6500px wide this removes ~13x redundant clip renders.
-    channels = 4 if transparent else 3
-    budget = 12_000_000  # bounded per-render allocation, not output file cap
     halo = 2
     edge_y = max(1, min(edge, budget // max(channels, width * channels) - halo * 2))
     full_width = width * channels * (edge_y + halo * 2) <= budget
@@ -76,6 +79,7 @@ def raster_stripes(page, width, height, *, edge=512, progress=None,
             if right <= left or bottom <= top:
                 continue
             src = pix.samples_mv
+            target = memoryview(stripe)
             count = (right-left)*channels
             # Most bands now use a single full-width pixmap. Transfer every
             # visible row in one contiguous copy instead of a Python row loop.
@@ -84,13 +88,14 @@ def raster_stripes(page, width, height, *, edge=512, progress=None,
                     pix.width == width and pix.stride == width * channels):
                 start = (top - py0) * pix.stride
                 end = start + (bottom - top) * pix.stride
-                stripe[(top-y0)*width*channels:(bottom-y0)*width*channels] = src[start:end]
+                target[(top-y0)*width*channels:(bottom-y0)*width*channels] = src[start:end]
             else:
                 for yy in range(top, bottom):
                     i = (yy-py0)*pix.stride + (left-px0)*channels
                     j = ((yy-y0)*width + left)*channels
-                    stripe[j:j+count] = src[i:i+count]
-            del src
+                    target[j:j+count] = src[i:i+count]
+            target.release()
+            del src  # PyMuPDF owns and releases its cached samples view.
         yield y0, y1, stripe
         if progress: progress(y1 / height)
 
@@ -146,6 +151,14 @@ def save_png_tiled(page, stream, width, height, dpi, *, progress=None,
         if first >= last:
             continue
         rows = last - first
+        if transparent:
+            # MuPDF samples are premultiplied (RGBa); PNG requires straight
+            # RGBA. Pillow's native conversion avoids dark translucent ink.
+            # Alpha is unchanged; integer RGB rounding can differ from
+            # MuPDF's native PNG encoder by one component value.
+            with Image.frombytes('RGBa', (full_width, y1-y0), stripe) as premultiplied:
+                with premultiplied.convert('RGBA') as straight:
+                    stripe = straight.tobytes()
         encoded_rows = pack_png_rows(stripe, full_width, channels, left,
                                      first-y0, rows, rowbytes)
         compressed = enc.compress(encoded_rows)
@@ -166,6 +179,12 @@ def save_jpg_tiled(page, destination: Path, width, height, dpi, *, progress=None
     PNG is truly streaming; JPEG's Pillow encoder may allocate addressable image
     memory after staged tile rendering. No arbitrary output pixel cap is used.
     """
+    if not 1 <= width <= 65500 or not 1 <= height <= 65500:
+        raise ValueError('JPEG 출력은 가로·세로 각각 65,500 픽셀 이하로 지정하세요.')
+    # Sparse truncate/mmap may succeed despite insufficient disk space and
+    # later fault the process while writing. Refuse known-insufficient space.
+    if shutil.disk_usage(destination.parent).free < width * height * 3:
+        raise OSError('JPEG 임시 RGB 저장 공간이 부족합니다.')
     path = None
     try:
         with tempfile.NamedTemporaryFile(prefix=f'.drawing-rgb-{os.getpid()}-', suffix='.raw',

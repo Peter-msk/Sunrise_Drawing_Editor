@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from dataclasses import replace
 import os
 import threading
 import time
@@ -18,20 +19,24 @@ from PySide6.QtWidgets import (
 )
 
 from .core import (DrawingDocument, DrawingError, RenderCancelled, OutputOptions,
-                   render_snapshot, preview_snapshot, export_snapshot)
-from .batch import LayerRule, LayerRuleStore, apply_rule, plan_exports
+                   render_snapshot, preview_snapshot, export_snapshot, verify_source)
+from .batch import LayerRule, LayerRuleStore, apply_rule, plan_exports, prepare_output_folders
+from .automation import BatchSession, discover_drawings
 from .batch_worker import run_batch_exports_isolated
+from .layer_tools import plan_advanced_exports
+from .layer_tools_ui import AdvancedExportDialog, group_dialog, common_dialog, report_dialog, detail_report_dialog
 from .output_location import completed_folder
 from .release_feed import APP_VERSION
 from .icons import icon_file
-from .cad_worker import should_isolate_cad, render_isolated, shutdown_all_workers
+from .cad_worker import should_isolate_cad, render_isolated, shutdown_all_workers, close_thread_worker
 from .state import DrawingState
 from .cad_catalog import read_ascii_dxf_layers
-from .ui_design import THEMES, panel_layout
-from .ui_interaction import (matching_editable_layers, file_add_status,
+from .ui_design import THEMES, panel_layout, stack_export_actions
+from .ui_interaction import (file_add_status,
                              zoom_factor_for_delta, clamp_zoom_factor,
                              preview_raster_size, detail_tile_covers,
-                             catalog_result_is_current, layer_search_feedback)
+                             catalog_result_is_current, layer_search_feedback, viewport_region,
+                             analysis_snapshot_is_current, export_action_state)
 
 ASSETS = Path(__file__).resolve().parent.parent / 'assets'
 # PyMuPDF's native cache is process-global. Concurrent PDF raster/metadata
@@ -290,7 +295,7 @@ class Signals(QObject):
 class RenderTask(QRunnable):
     def __init__(self, mode, seq, path, states, page, preview_size=(1000,750),
                  output='', options=None, clip=None, cancel_event=None, jobs=None,
-                 isolate_pdf=False):
+                 isolate_pdf=False, expected_source=None):
         super().__init__()
         self.mode,self.seq=mode,seq
         self.path,self.states,self.page=path,dict(states),page
@@ -301,6 +306,7 @@ class RenderTask(QRunnable):
         self.jobs=tuple(jobs or ())
         self._isolated_cad=False
         self._isolate_pdf=bool(isolate_pdf)
+        self.expected_source=expected_source
         self.signals=Signals()
 
     def run(self):
@@ -311,7 +317,7 @@ class RenderTask(QRunnable):
         if self._isolated_cad:
             self._run_guarded()
             return
-        if self.mode == 'batch_export':
+        if self.mode in ('batch_export', 'inspect'):
             # Allow preview/catalog tasks to acquire MuPDF between file exports.
             self._run_guarded()
             return
@@ -336,20 +342,29 @@ class RenderTask(QRunnable):
                 if self._isolated_cad:
                     value=render_isolated('preview',self.path,self.states,self.page,
                                           self.preview_size,
-                                          cancelled=self.cancel_event.is_set if self.cancel_event else None)
+                                          cancelled=self.cancel_event.is_set if self.cancel_event else None,
+                                          expected_source=self.expected_source)
                 else:
                     value=preview_snapshot(self.path,self.states,self.page,self.preview_size,
-                                           cancelled=self.cancel_event.is_set if self.cancel_event else None)
+                                           cancelled=self.cancel_event.is_set if self.cancel_event else None,
+                                          expected_source=self.expected_source)
             elif self.mode=='detail':
                 if self._isolated_cad:
                     pixels=render_isolated('detail',self.path,self.states,self.page,
                                             self.preview_size,clip=self.clip,
-                                            cancelled=self.cancel_event.is_set if self.cancel_event else None)
+                                            cancelled=self.cancel_event.is_set if self.cancel_event else None,
+                                          expected_source=self.expected_source)
                     value=(pixels,self.clip)
                 else:
                     value=(render_snapshot(self.path,self.states,self.page,self.preview_size,
                                            clip=self.clip,
-                                           cancelled=self.cancel_event.is_set if self.cancel_event else None),self.clip)
+                                           cancelled=self.cancel_event.is_set if self.cancel_event else None,
+                                          expected_source=self.expected_source),self.clip)
+            elif self.mode=='inspect':
+                path, states, page, signature = self.jobs[0]
+                value=render_isolated('inspect',path,states,page,(1,1),
+                                      cancelled=self.cancel_event.is_set if self.cancel_event else None,
+                                      expected_source=signature)
             elif self.mode=='batch_export':
                 # All native PDF export work runs in a separate process.
                 # This also removes Pillow/zlib GIL contention from the Qt
@@ -372,6 +387,25 @@ class RenderTask(QRunnable):
             self.signals.success.emit(self.mode,self.seq,value)
         except Exception as exc:
             self.signals.error.emit(self.mode,self.seq,str(exc))
+        finally:
+            if self.mode == 'inspect':
+                close_thread_worker()
+
+
+class FolderTask(QRunnable):
+    def __init__(self, seq, folder, recursive, cancel_event):
+        super().__init__()
+        self.seq, self.folder, self.recursive = seq, folder, recursive
+        self.cancel_event = cancel_event
+        self.signals = Signals()
+
+    def run(self):
+        try:
+            result = discover_drawings(self.folder, recursive=self.recursive,
+                                       cancelled=self.cancel_event.is_set)
+            self.signals.success.emit('folder', self.seq, result)
+        except Exception as exc:
+            self.signals.error.emit('folder', self.seq, str(exc))
 
 
 class CatalogTask(QRunnable):
@@ -380,10 +414,11 @@ class CatalogTask(QRunnable):
     Return only primitive layer metadata; never give a QWidget a MuPDF document
     created in a different thread, and never keep dozens of large CAD objects.
     """
-    def __init__(self, seq: int, path: str, cancel_event=None):
+    def __init__(self, seq: int, path: str, cancel_event=None, expected_source=None):
         super().__init__()
         self.seq, self.path = seq, path
         self.cancel_event = cancel_event
+        self.expected_source = expected_source
         self.signals = Signals()
 
     def run(self):
@@ -392,11 +427,15 @@ class CatalogTask(QRunnable):
                 raise InterruptedError('등록 취소')
             # Large ASCII DXF: read only the layer table. Do not construct an
             # extra full CAD model just to populate the file list.
+            verify_source(self.path, self.expected_source)
             kind = Path(self.path).suffix.lower()
-            layers = read_ascii_dxf_layers(self.path) if kind == '.dxf' else None
+            layers = read_ascii_dxf_layers(self.path, cancelled=self.cancel_event.is_set if self.cancel_event else None) if kind == '.dxf' else None
             if layers is not None:
                 value = (self.path, layers, 1)
             else:
+                if self.cancel_event is not None and self.cancel_event.is_set():
+                    raise InterruptedError('등록 취소')
+                verify_source(self.path, self.expected_source)
                 # Only PDFs need the MuPDF gate for metadata. CAD metadata
                 # loading is independent, so Explorer batch adds stay fast.
                 if kind == '.pdf':
@@ -404,6 +443,9 @@ class CatalogTask(QRunnable):
                         if self.cancel_event is not None and self.cancel_event.is_set():
                             raise InterruptedError('등록 취소')
                     try:
+                        if self.cancel_event is not None and self.cancel_event.is_set():
+                            raise InterruptedError('등록 취소')
+                        verify_source(self.path, self.expected_source)
                         with DrawingDocument(self.path) as document:
                             value = (self.path, document.layers(), document.pages)
                     finally:
@@ -413,6 +455,7 @@ class CatalogTask(QRunnable):
                         value = (self.path, document.layers(), document.pages)
             if self.cancel_event is not None and self.cancel_event.is_set():
                 raise InterruptedError('등록 취소')
+            verify_source(self.path, self.expected_source)
             self.signals.success.emit('catalog', self.seq, value)
         except Exception as exc:
             self.signals.error.emit('catalog', self.seq, f'{Path(self.path).name}: {exc}')
@@ -421,7 +464,7 @@ class CatalogTask(QRunnable):
 class DrawingWindow(QMainWindow):
     def __init__(self, initial_paths=None):
         super().__init__()
-        self.setWindowTitle(f'Sunrise Drawing Editor v{APP_VERSION}  |  도면 편집기')
+        self.setWindowTitle(f'Sunrise Drawing Editor v{APP_VERSION}  |  도면 추출기')
         self.setWindowIcon(QIcon(str(ASSETS/'app.ico')))
         # Use logical screen coordinates so 150–175% scaling doesn't place
         # the bottom export buttons below the available desktop work area.
@@ -441,7 +484,9 @@ class DrawingWindow(QMainWindow):
         self.catalog_pool=QThreadPool(self)
         self.catalog_pool.setMaxThreadCount(1)
         self._layer_change_guard=False
+        self._filter_match_count=0
         self._preview_seq=self._detail_seq=self._export_seq=0
+        self._preview_displayed_seq = None
         self._preview_busy=self._detail_busy=self._export_busy=False
         self._preview_pending=self._detail_pending=False
         self._preview_cancel=self._detail_cancel=None
@@ -450,6 +495,14 @@ class DrawingWindow(QMainWindow):
         self._close_prompted=False
         self._active_tasks={}
         self._export_cancel=None
+        self._folder_cancel=None
+        self._folder_seq=0
+        self._last_folder_root = None
+        self._batch_session=None
+        self._batch_attempt=()
+        self._analysis_cancel=None
+        self._analysis_seq=0
+        self._analysis_snapshots = ()
         # Keep previews on one worker to reuse its thread-local multi-MB CAD
         # document; batch exports use a separate worker to avoid UI blocking.
         self.pool=QThreadPool(self)
@@ -472,7 +525,9 @@ class DrawingWindow(QMainWindow):
         self.task_watchdog.start()
         self._settings=QSettings('Sunrise','DrawingEditor')
         data_dir=QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
-        self._rule_store=LayerRuleStore(Path(data_dir or (Path.home()/'.sunrise_drawing_editor'))/'layer_rules.json')
+        self._appdata_dir = Path(data_dir or (Path.home()/'.sunrise_drawing_editor'))
+        self._batch_checkpoint = self._appdata_dir / 'batch_latest.json'
+        self._rule_store=LayerRuleStore(self._appdata_dir/'layer_rules.json')
         self._rule_load_error=None
         try:
             self._rules=self._rule_store.load()
@@ -553,10 +608,22 @@ class DrawingWindow(QMainWindow):
         self.add_action.setToolTip('PDF, DXF, DWG 도면 추가 (Ctrl+O)')
         self.add_action.setShortcut('Ctrl+O')
         self.add_action.triggered.connect(self.open_files)
+        self.folder_action = toolbar.addAction(self._icon('folder'), '폴더 추가…')
+        self.folder_action.triggered.connect(self.open_folder)
+        self.folder_action.setToolTip('폴더에서 PDF/DXF/DWG 검색 · 하위 폴더 선택 가능')
         self.remove_action = toolbar.addAction(self._icon('remove'), '현재 도면 제거')
         self.remove_action.setObjectName('removeCurrentDrawingAction')
         self.remove_action.setToolTip('왼쪽 목록에서 현재 활성 도면 1개만 제거합니다. 원본 파일은 삭제되지 않습니다.')
         self.remove_action.triggered.connect(self.remove_current)
+        self.analysis_action = toolbar.addAction('도면 정보·진단…')
+        self.analysis_action.triggered.connect(self.analyze_selected)
+        self.retry_action = toolbar.addAction('미완료 재실행')
+        self.retry_action.setToolTip('현재 또는 이전 실행의 미완료 작업을 원본 확인 후 재실행')
+        self.retry_action.triggered.connect(self.retry_batch)
+        self.report_action = toolbar.addAction('결과 기록…')
+        self.report_action.triggered.connect(self.save_batch_report)
+        self.retry_action.setEnabled(False)
+        self.report_action.setEnabled(False)
         toolbar.addSeparator()
         self.brand_label = QLabel('SUNRISE  /  DRAWING EDITOR')
         self.brand_label.setObjectName('brand')
@@ -760,6 +827,16 @@ class DrawingWindow(QMainWindow):
         self.delete_rule_button.clicked.connect(self.delete_rule)
         rule_actions.addWidget(self.delete_rule_button)
         layers_layout.addLayout(rule_actions)
+        grouping_actions = QHBoxLayout(); grouping_actions.setSpacing(5)
+        self.group_button = QPushButton('그룹 관리')
+        self.group_button.setToolTip('현재 도면의 이름 기반 그룹 분류 및 선택 그룹 제어')
+        self.group_button.clicked.connect(self.manage_layer_groups)
+        self.common_button = QPushButton('공통 레이어')
+        self.common_button.setToolTip('선택 도면 모두에 존재하는 변경 가능한 공통 레이어 제어')
+        self.common_button.clicked.connect(self.manage_common_layers)
+        for button in (self.group_button, self.common_button):
+            button.setProperty('uxRole', 'subAction');grouping_actions.addWidget(button)
+        layers_layout.addLayout(grouping_actions)
         self.auto_apply_rules = QCheckBox('새 도면에 선택 규칙 자동 적용')
         self.auto_apply_rules.setObjectName('autoApplyLayerRule')
         self.auto_apply_rules.setChecked(self._settings.value('auto_apply_rules',False,type=bool))
@@ -900,12 +977,12 @@ class DrawingWindow(QMainWindow):
         root.addWidget(self.work_scroll, 1)
 
         # Export settings are permanently visible, including the primary CTA.
-        footer = QGroupBox('04   이미지 추출')
+        footer = QGroupBox('04   도면 출력')
         footer.setObjectName('exportPanel')
         footer.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         export_layout = QVBoxLayout(footer)
-        export_layout.setContentsMargins(13,16,13,10)
-        export_layout.setSpacing(6)
+        export_layout.setContentsMargins(10,13,10,8)
+        export_layout.setSpacing(5)
         controls = QHBoxLayout()
         controls.setSpacing(8)
         controls.addWidget(QLabel('형식'))
@@ -982,39 +1059,46 @@ class DrawingWindow(QMainWindow):
         extra_options.setSpacing(12)
         extra_options.addWidget(self.transparent_png)
         extra_options.addWidget(self.crop_png)
+        self.folder_tree_option = QCheckBox('사업 폴더 구조 유지')
+        self.folder_tree_option.setChecked(False)
+        self.folder_tree_option.setToolTip('폴더 추가로 등록한 도면에만 사용. 원본의 하위 폴더 구조를 출력 폴더에 재현합니다.')
+        extra_options.addWidget(self.folder_tree_option)
         extra_options.addSpacing(8)
-        self.resolution_hint = QLabel('원본 자동: 래스터 원본 밀도 유지 · 벡터 도면 300DPI')
+        self.resolution_hint = ElidedLabel('원본 자동: 래스터 원본 밀도 유지 · 벡터 도면 300DPI')
         self.resolution_hint.setObjectName('hint')
-        extra_options.addWidget(self.resolution_hint)
-        extra_options.addStretch(1)
+        extra_options.addWidget(self.resolution_hint, 1)
         export_layout.addLayout(extra_options)
         self.resolution_combo.currentIndexChanged.connect(self._update_resolution_controls)
         self._update_resolution_controls()
-        destination = QHBoxLayout()
+        destination = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self.export_destination_layout = destination
         destination.setSpacing(7)
-        destination.addWidget(QLabel('저장 위치'))
+        path_row = QHBoxLayout(); path_row.setSpacing(5)
+        path_row.addWidget(QLabel('저장 위치'))
         self.output_folder = QLineEdit()
         self.output_folder.setObjectName('outputFolderPath')
         default_dir = (QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DocumentsLocation)
                        or str(Path.home()))
         self.output_folder.setText(str(self._settings.value('output_folder',default_dir)))
-        self.output_folder.setPlaceholderText('이미지 저장 폴더')
-        self.output_folder.setAccessibleName('이미지 저장 경로')
+        self.output_folder.setPlaceholderText('출력 저장 폴더')
+        self.output_folder.setAccessibleName('출력 저장 경로')
         self.output_folder.setToolTip(self.output_folder.text())
         self.output_folder.textChanged.connect(self.output_folder.setToolTip)
-        destination.addWidget(self.output_folder, 1)
+        path_row.addWidget(self.output_folder, 1)
         self.browse_button = QPushButton('찾아보기')
         self.browse_button.setObjectName('browseOutputFolderButton')
         self.browse_button.setProperty('uxRole', 'subAction')
         self.browse_button.setIcon(self._icon('folder'))
         self.browse_button.setIconSize(QSize(18, 18))
-        self.browse_button.setToolTip('이미지 저장 폴더 선택')
+        self.browse_button.setToolTip('출력 저장 폴더 선택')
         self.browse_button.clicked.connect(self.pick_output_dir)
-        destination.addWidget(self.browse_button)
+        path_row.addWidget(self.browse_button)
+        destination.addLayout(path_row, 1)
+        actions = QHBoxLayout(); actions.setSpacing(5)
         self.export_target_hint = QLabel('추출 대상 0개')
         self.export_target_hint.setObjectName('exportTarget')
         self.export_target_hint.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        destination.addWidget(self.export_target_hint)
+        actions.addWidget(self.export_target_hint, 1)
         self.export_button = QPushButton('선택 도면 추출')
         self.export_button.setObjectName('exportDrawingsButton')
         self.export_button.setProperty('uxRole', 'primary')
@@ -1025,7 +1109,14 @@ class DrawingWindow(QMainWindow):
         self.export_button.clicked.connect(self.export_selected)
         self.export_button.setToolTip('왼쪽에서 선택한 도면을 현재 해상도로 PNG/JPG 추출 (Ctrl+S)')
         self.export_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        destination.addWidget(self.export_button)
+        self.advanced_export_button = QPushButton('조합 추출…')
+        self.advanced_export_button.setProperty('uxRole', 'subAction')
+        self.advanced_export_button.setToolTip('분리 추출·페이지 지정·PDF/SVG/DXF 벡터 출력')
+        self.advanced_export_button.clicked.connect(self.export_advanced)
+        self.advanced_export_button.setAccessibleName('레이어·페이지 조합 및 벡터 추출')
+        actions.addWidget(self.advanced_export_button)
+        actions.addWidget(self.export_button)
+        destination.addLayout(actions)
         export_layout.addLayout(destination)
         root.addWidget(footer)
         self.progress = QProgressBar()
@@ -1035,9 +1126,9 @@ class DrawingWindow(QMainWindow):
         self.progress.setTextVisible(False)
         # The 6px visual meter has no text: expose its actual meaning to
         # screen readers instead of relying on the tiny colored bar alone.
-        self.progress.setAccessibleName('이미지 추출 진행률')
-        self.progress.setAccessibleDescription('선택한 도면의 이미지 추출 진행 정도를 백분율로 표시합니다.')
-        self.progress.setToolTip('일괄 이미지 추출 진행률')
+        self.progress.setAccessibleName('도면 출력 진행률')
+        self.progress.setAccessibleDescription('선택한 도면의 도면 출력 진행 정도를 백분율로 표시합니다.')
+        self.progress.setToolTip('일괄 도면 출력 진행률')
         self.progress.hide()
         root.addWidget(self.progress)
         self.setCentralWidget(root_widget)
@@ -1080,7 +1171,9 @@ class DrawingWindow(QMainWindow):
         self._layers_panel.setFixedWidth(layout.layer_width)
         self.brand_label.setVisible(layout.show_brand)
         self.file_selection_hint.setVisible(layout.show_selection_help)
-        self.export_target_hint.setVisible(width >= 1050)
+        self.export_destination_layout.setDirection(
+            QBoxLayout.Direction.TopToBottom if stack_export_actions(width)
+            else QBoxLayout.Direction.LeftToRight)
         narrow = width < 900
         self.select_all_button.setText('전체' if narrow else '전체 선택')
         self.remove_selected_button.setText('선택 제거' if narrow else '선택 도면 제거')
@@ -1107,12 +1200,12 @@ class DrawingWindow(QMainWindow):
                  self.layer_search, self.layer_on_button, self.layer_off_button,
                  self.filter_on_button, self.filter_off_button,
                  self.rule_selector, self.save_rule_button, self.apply_rule_button,
-                 self.delete_rule_button, self.auto_apply_rules, self.layer_list,
+                 self.delete_rule_button, self.group_button, self.common_button, self.auto_apply_rules, self.layer_list,
                  self.page_prev_button, self.page_next_button, self.zoom_out_button,
                  self.zoom_in_button, self.fit_button, self.png_button,
                  self.jpg_button, self.transparent_png, self.crop_png,
-                 self.resolution_combo, self.output_folder,
-                 self.browse_button, self.export_button)
+                 self.resolution_combo, self.custom_width, self.custom_height, self.custom_dpi,
+                 self.output_folder, self.browse_button, self.advanced_export_button, self.export_button)
         for before, after in zip(order, order[1:]):
             QWidget.setTabOrder(before, after)
 
@@ -1139,6 +1232,7 @@ class DrawingWindow(QMainWindow):
             item.setHidden(not visible)
             if visible:
                 matches += 1
+        self._filter_match_count=matches
         self._update_layer_summary(matches=matches)
         # _sync_actions resolves editable rather than merely matching layers:
         # a locked-only search must not expose disabled ON/OFF action controls.
@@ -1153,14 +1247,13 @@ class DrawingWindow(QMainWindow):
         doc = self.current_doc()
         if doc is None or not doc.loaded:
             self.layer_help.setText('도면을 선택하면 레이어가 나타납니다.' if doc is None
+                                    else '레이어 분석 실패 · 다시 등록하세요.' if doc.catalog_error
                                     else '레이어 정보를 읽는 중입니다…')
             return
-        layers = doc.layers()
-        on = sum(layer.visible for layer in layers)
-        total = len(layers)
+        on = doc.visible_count
+        total = doc.layer_count
         if matches is None:
-            matches = sum(not self.layer_list.topLevelItem(i).isHidden()
-                          for i in range(self.layer_list.topLevelItemCount()))
+            matches = self._filter_match_count
         suffix = f' · 검색 {matches}개' if self.layer_search.text().strip() else ''
         self.layer_help.setText(f'전체 {total}개 · ON {on}개{suffix}')
 
@@ -1173,6 +1266,12 @@ class DrawingWindow(QMainWindow):
         selected = self.selected_docs()
         can_export = bool(selected) and all(d.loaded for d in selected)
         has_rule = self._selected_rule() is not None
+        self.folder_action.setText('검색 취소' if self._folder_cancel is not None else '폴더 추가…')
+        self.folder_action.setEnabled(not self._closing and (self._folder_cancel is not None or not self._export_busy))
+        available = self._batch_session is not None and not self._export_busy and not self._closing
+        self.retry_action.setEnabled((available or (self._batch_session is None and self._batch_checkpoint.is_file()))
+                                     and not self._export_busy and not self._closing and self._analysis_cancel is None)
+        self.report_action.setEnabled(available)
         self.remove_action.setEnabled(doc is not None and not self._export_busy)
         self.select_all_button.setEnabled(self.file_list.count() > 0)
         has_selection = bool(self.file_list.selectedItems())
@@ -1182,7 +1281,7 @@ class DrawingWindow(QMainWindow):
         for button in (self.layer_on_button, self.layer_off_button, self.save_rule_button,
                        self.layer_search):
             button.setEnabled(valid_current)
-        filtered_keys = matching_editable_layers(doc.layers(), self.layer_search.text()) if valid_current else ()
+        filtered_keys = doc.matching_editable_keys(self.layer_search.text()) if valid_current else ()
         self.filter_on_button.setEnabled(bool(filtered_keys))
         self.filter_off_button.setEnabled(bool(filtered_keys))
         self.apply_rule_button.setEnabled(has_rule and can_export)
@@ -1191,10 +1290,18 @@ class DrawingWindow(QMainWindow):
         self.page_next_button.setEnabled(valid_current and doc.page_index < doc.pages - 1)
         for button in (self.zoom_in_button, self.zoom_out_button, self.fit_button):
             button.setEnabled(valid_current)
-        self.export_button.setEnabled(self._export_busy or can_export)
+        enabled, caption = export_action_state(
+            busy=self._export_busy, cancel_requested=self._export_cancel is not None and self._export_cancel.is_set(),
+            ready=can_export, analysis_busy=self._analysis_cancel is not None, count=len(selected))
+        self.export_button.setEnabled(enabled)
+        self.export_button.setText(caption)
+        self.group_button.setEnabled(valid_current and not self._export_busy)
+        self.common_button.setEnabled(can_export and len(selected) >= 2 and not self._export_busy)
+        self.advanced_export_button.setEnabled(can_export and not self._export_busy and self._analysis_cancel is None)
+        self.analysis_action.setEnabled((can_export and not self._export_busy) or self._analysis_cancel is not None)
+        self.analysis_action.setText('분석 취소' if self._analysis_cancel is not None else '도면 정보·진단…')
         if not self._export_busy:
             count = len(selected)
-            self.export_button.setText(f'{count}개 도면 추출' if count > 1 else '선택 도면 추출')
             self.export_target_hint.setText(f'추출 대상 {count}개' +
                 (' · 읽는 중' if count and not can_export else ''))
             self.export_button.setAccessibleDescription(
@@ -1357,6 +1464,7 @@ class DrawingWindow(QMainWindow):
         # All loaded buttons must refresh their SVG variant when the theme
         # changes; otherwise a dark icon could stay on a light background.
         self.add_action.setIcon(self._icon('add'))
+        self.folder_action.setIcon(self._icon('folder'))
         self.remove_action.setIcon(self._icon('remove'))
         self.layer_search_icon.setPixmap(self._icon('search').pixmap(QSize(17, 17)))
         for button, name in (
@@ -1393,8 +1501,16 @@ class DrawingWindow(QMainWindow):
             self._theme=value;self._settings.setValue('theme',value);self._apply_theme()
 
     def pick_output_dir(self):
-        path=QFileDialog.getExistingDirectory(self,'이미지 저장 폴더 선택',self.output_folder.text())
+        path=QFileDialog.getExistingDirectory(self,'출력 저장 폴더 선택',self.output_folder.text())
         if path:self.output_folder.setText(path)
+
+    def _request_output_directory(self):
+        # A blank field is never interpreted as CWD. Offer the existing chooser
+        # directly and leave the job unstarted if the user cancels.
+        if not self.output_folder.text().strip():
+            self.pick_output_dir()
+        text = self.output_folder.text().strip()
+        return Path(text).expanduser() if text else None
 
     def current_doc(self):
         item=self.file_list.currentItem()
@@ -1408,7 +1524,7 @@ class DrawingWindow(QMainWindow):
     def selected_docs(self):
         # QListWidget selection is deliberate: current focus alone is not batch intent.
         return [self.documents[item.data(Qt.ItemDataRole.UserRole)]
-                for item in self.file_list.selectedItems()
+                for item in sorted(self.file_list.selectedItems(), key=self.file_list.row)
                 if item.data(Qt.ItemDataRole.UserRole) in self.documents]
 
     def _selected_rule(self):
@@ -1491,9 +1607,12 @@ class DrawingWindow(QMainWindow):
                 key=item.data(0,Qt.ItemDataRole.UserRole)
                 if key not in state:continue
                 on=state[key]
-                item.setCheckState(0,Qt.CheckState.Checked if on else Qt.CheckState.Unchecked)
-                if item.text(1)!='잠김':
-                    item.setText(1,'표시' if on else '숨김')
+                desired=Qt.CheckState.Checked if on else Qt.CheckState.Unchecked
+                if item.checkState(0)!=desired:
+                    item.setCheckState(0,desired)
+                label='표시' if on else '숨김'
+                if item.text(1) not in ('잠김',label):
+                    item.setText(1,label)
         finally:
             self.layer_list.setUpdatesEnabled(True)
             self._layer_change_guard=False
@@ -1534,10 +1653,56 @@ class DrawingWindow(QMainWindow):
         self.statusBar().showMessage(message.replace('\n',' / '),15000)
         QMessageBox.information(self,'레이어 규칙 일괄 적용 결과',message)
 
+    def manage_layer_groups(self):
+        doc=self.current_doc()
+        if not doc or not doc.loaded or self._export_busy:return
+        if group_dialog(self, doc):
+            self._sync_current_layer_rows();self._update_layer_summary();self.request_preview(layer_interaction=True)
+
+    def manage_common_layers(self):
+        docs=self.selected_docs()
+        if len(docs)<2 or any(not d.loaded for d in docs) or self._export_busy:return
+        current=self.current_doc();before=current.states() if current else None
+        try:
+            changed=common_dialog(self, docs)
+        except DrawingError as exc:
+            QMessageBox.warning(self,'공통 레이어 오류',str(exc));return
+        if changed:
+            self._sync_current_layer_rows();self._update_layer_summary()
+            if current and current.states()!=before:self.request_preview(layer_interaction=True)
+            self.statusBar().showMessage(f'공통 레이어 {changed}개 상태 변경',8000)
+
     def open_files(self):
         files,_=QFileDialog.getOpenFileNames(self,'도면 파일 선택','',
                             '도면 (*.pdf *.dxf *.dwg);;모든 파일 (*.*)')
         if files:self.add_files(files)
+
+    def open_folder(self):
+        if self._closing:
+            return
+        if self._folder_cancel is not None:
+            self._folder_cancel.set()
+            return
+        if self._export_busy:
+            return
+        folder = QFileDialog.getExistingDirectory(self, '도면 폴더 선택', '')
+        if not folder:
+            return
+        answer = QMessageBox.question(self, '폴더 검색', '하위 폴더까지 검색할까요?',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Yes)
+        if answer == QMessageBox.StandardButton.Cancel:
+            return
+        self._folder_search_root = folder
+        self._folder_seq += 1
+        self._folder_cancel = threading.Event()
+        task = FolderTask(self._folder_seq, folder, answer == QMessageBox.StandardButton.Yes, self._folder_cancel)
+        self._active_tasks[('folder', task.seq)] = task
+        task.signals.success.connect(self._success)
+        task.signals.error.connect(self._error)
+        self.catalog_pool.start(task)
+        self._sync_actions()
+        self.statusBar().showMessage('도면 폴더 검색 중…')
 
     def add_files(self, paths):
         """Register files immediately; parse large CAD/PDF metadata off the GUI thread."""
@@ -1571,7 +1736,8 @@ class DrawingWindow(QMainWindow):
                         first = item
                     self._catalog_seq += 1
                     cancel_event=threading.Event()
-                    task = CatalogTask(self._catalog_seq, key, cancel_event=cancel_event)
+                    task = CatalogTask(self._catalog_seq, key, cancel_event=cancel_event,
+                                       expected_source=state.source_signature)
                     self._catalog_paths[task.seq] = key
                     self._catalog_latest[key] = task.seq
                     self._catalog_cancellations[key] = cancel_event
@@ -1600,20 +1766,32 @@ class DrawingWindow(QMainWindow):
         if state is None:
             return
         state.load_metadata(layers, pages)
+        rule_note = ''
+        rule_warning = False
         if state.pending_rule is not None:
             try:
                 if state.pending_rule.kind == state.kind:
-                    apply_rule(state, state.pending_rule)
+                    result = apply_rule(state, state.pending_rule)
+                    rule_warning = bool(result.missing or result.ambiguous or result.locked or not result.matched)
+                    rule_note = (f'자동 규칙: 일치 {result.matched}, 변경 {result.changed}, '
+                                 f'누락 {result.missing}, 중복 {result.ambiguous}, 잠김 {result.locked}')
+                else:
+                    rule_warning = True
+                    rule_note = '자동 규칙 미적용: 도면 형식 불일치'
             except DrawingError as exc:
-                self.statusBar().showMessage(f'{state.path.name}: 자동 규칙 적용 실패: {exc}', 10000)
+                rule_warning = True
+                rule_note = f'자동 규칙 적용 실패: {exc}'
+                self.statusBar().showMessage(f'{state.path.name}: {rule_note}', 10000)
             finally:
                 state.pending_rule = None
         for row in range(self.file_list.count()):
             item = self.file_list.item(row)
             if item.data(Qt.ItemDataRole.UserRole) == path:
-                item.setText(f'[{state.kind.upper()}]  {state.path.name}')
+                item.setText(f'[{state.kind.upper()}]  {state.path.name}' + (' · 규칙 확인' if rule_warning else ''))
+                if rule_note:
+                    item.setToolTip(path + '\n' + rule_note)
                 item.setData(Qt.ItemDataRole.AccessibleDescriptionRole,
-                             f'도면 레이어 {len(state.layers())}개 분석 완료.')
+                             f'도면 레이어 {state.layer_count}개 분석 완료. ' + rule_note)
                 if item is self.file_list.currentItem():
                     self._selection_changed(item, None)
                 break
@@ -1644,7 +1822,7 @@ class DrawingWindow(QMainWindow):
     def _remove_file_items(self, items):
         """Prevent intermediate currentChanged signals from rendering removed files."""
         if self._export_busy:
-            self.statusBar().showMessage('이미지 추출 중에는 파일을 제거할 수 없습니다. 완료 또는 취소 후 다시 시도하세요.', 7000)
+            self.statusBar().showMessage('도면 출력 중에는 파일을 제거할 수 없습니다. 완료 또는 취소 후 다시 시도하세요.', 7000)
             return
         rows = sorted({self.file_list.row(item) for item in items if self.file_list.row(item) >= 0},
                       reverse=True)
@@ -1682,6 +1860,12 @@ class DrawingWindow(QMainWindow):
         self.statusBar().showMessage(f'{len(rows)}개 도면을 목록에서 제거했습니다. 원본은 유지됩니다.', 8000)
 
     def _selection_changed(self,current,previous):
+        self.preview_timer.stop();self.detail_timer.stop()
+        if self._analysis_cancel is not None:
+            self._analysis_cancel.set()
+        self._preview_pending=self._detail_pending=False
+        self._preview_seq+=1;self._detail_seq+=1
+        self._filter_match_count=0
         # Signal cancellation at the very beginning of a file switch. Parsing
         # hundreds of DXF/OCG layer rows before requesting a preview otherwise
         # keeps the old 400MiB render alive for the entire UI rebuild.
@@ -1707,8 +1891,9 @@ class DrawingWindow(QMainWindow):
         if doc is not None and not doc.loaded:
             self.layer_list.clear()
             self.view_info.setText(doc.path.name)
-            self.view_status.setText('대용량 도면 원본 레이어 정보 백그라운드 분석 중…')
-            self.page_info.setText('읽는 중')
+            self.view_status.setText('파일 읽기 실패: '+doc.catalog_error if doc.catalog_error
+                                     else '대용량 도면 원본 레이어 정보 백그라운드 분석 중…')
+            self.page_info.setText('오류' if doc.catalog_error else '읽는 중')
             self._preview_seq += 1
             self._detail_seq += 1
             self._update_layer_summary()
@@ -1719,6 +1904,7 @@ class DrawingWindow(QMainWindow):
         try:
             self.layer_list.clear()
             if doc:
+                rows=[]
                 for layer in doc.layers():
                     item=QTreeWidgetItem([layer.name,'잠김' if layer.locked else '표시' if layer.visible else '숨김'])
                     item.setData(0,Qt.ItemDataRole.UserRole,layer.key)
@@ -1728,15 +1914,15 @@ class DrawingWindow(QMainWindow):
                     else:
                         item.setFlags(item.flags()|Qt.ItemFlag.ItemIsUserCheckable)
                     item.setCheckState(0,Qt.CheckState.Checked if layer.visible else Qt.CheckState.Unchecked)
-                    self.layer_list.addTopLevelItem(item)
-                self.layer_help.setText(f'{len(doc.layers())}개 레이어 · 원본 파일 유지' if doc.layers() else '내부 레이어가 없습니다.')
+                    rows.append(item)
+                self.layer_list.addTopLevelItems(rows)
+                self.layer_help.setText(f'{doc.layer_count}개 레이어 · 원본 파일 유지' if doc.layer_count else '내부 레이어가 없습니다.')
                 self.view_info.setText(doc.path.name)
                 self.page_info.setText(f'{doc.page_index+1} / {doc.pages}')
         finally:
             self.layer_list.setUpdatesEnabled(True)
             self._layer_change_guard=False
         self._filter_layers()
-        self._sync_actions()
         self.request_preview()
 
     def _layer_changed(self,item,column):
@@ -1759,7 +1945,7 @@ class DrawingWindow(QMainWindow):
         doc = self.current_doc()
         if doc is None or not doc.loaded:
             return
-        matches = matching_editable_layers(doc.layers(), self.layer_search.text())
+        matches = doc.matching_editable_keys(self.layer_search.text())
         if not matches:
             self.statusBar().showMessage('검색과 일치하는 변경 가능한 레이어가 없습니다.', 6000)
             return
@@ -1805,6 +1991,8 @@ class DrawingWindow(QMainWindow):
             return
         self._preview_seq+=1
         self._detail_seq+=1
+        if self._analysis_cancel is not None:
+            self._analysis_cancel.set()  # current page/layer snapshot is no longer active
         self._preview_pending=True
         self._detail_pending=False
         if self._preview_cancel is not None:
@@ -1838,10 +2026,11 @@ class DrawingWindow(QMainWindow):
                                  self.canvas.devicePixelRatioF())
         self._submit(RenderTask('preview',self._preview_seq,str(doc.path),doc.states(),doc.page_index,
                                 size,cancel_event=self._preview_cancel,
-                                isolate_pdf=(doc.kind == 'pdf' and bool(doc.layers()))))
+                                isolate_pdf=(doc.kind == 'pdf' and doc.layer_count > 0),
+                                expected_source=doc.source_signature))
 
     def request_detail(self):
-        if self._closing:
+        if self._closing or self._preview_pending or self._preview_busy:
             return
         # Every view change invalidates old clip results, including changes
         # while a background raster job is already running.
@@ -1864,7 +2053,7 @@ class DrawingWindow(QMainWindow):
     def _start_detail(self):
         if self._closing or self._detail_busy or not self._detail_pending or self._preview_busy or self._preview_pending:return
         doc=self.current_doc()
-        if doc is None:return
+        if doc is None or not doc.loaded:return
         clip=self.canvas.visible_clip(padding=0.15)
         if clip is None:return
         self._detail_pending=False
@@ -1879,10 +2068,14 @@ class DrawingWindow(QMainWindow):
         self.view_status.setText('확대 영역 0% · 렌더링 대기 (단계 기준)')
         self._submit(RenderTask('detail',self._detail_seq,str(doc.path),doc.states(),doc.page_index,
                                 (w,h),clip=clip,cancel_event=self._detail_cancel,
-                                isolate_pdf=(doc.kind == 'pdf' and bool(doc.layers()))))
+                                isolate_pdf=(doc.kind == 'pdf' and doc.layer_count > 0),
+                                expected_source=doc.source_signature))
 
     def cancel_preview(self):
         """Cancel stale preview/detail work without mutating document layers."""
+        if self._preview_pending or self._preview_busy:
+            self.canvas.clear_preview()
+            self._update_zoom_label()
         self.preview_timer.stop();self.detail_timer.stop()
         self._preview_seq += 1
         self._detail_seq += 1
@@ -1901,7 +2094,7 @@ class DrawingWindow(QMainWindow):
         self.custom_width.setVisible(custom)
         self.custom_height.setVisible(custom)
         self.custom_dpi.setVisible(mode == 'dpi')
-        self.resolution_hint.setText({
+        hint = {
             'original': '원본 자동: 래스터 원본 밀도 유지 · 벡터 도면 300DPI',
             'hd': 'HD: 도면 비율을 유지하며 1280×720 이내',
             'fhd': 'FHD: 도면 비율을 유지하며 1920×1080 이내',
@@ -1909,7 +2102,8 @@ class DrawingWindow(QMainWindow):
             'uhd': '4K: 도면 비율을 유지하며 3840×2160 이내',
             'custom': '직접 입력: 입력한 가로·세로의 최대 범위 안에서 비율 유지',
             'dpi': 'DPI 직접 입력: 벡터 품질과 출력 크기를 지정',
-        }.get(mode, '도면의 가로세로 비율을 유지합니다.'))
+        }.get(mode, '도면의 가로세로 비율을 유지합니다.')
+        self.resolution_hint.setText(hint)
 
     def _output_options(self) -> OutputOptions:
         mode = self.resolution_combo.currentData() or 'original'
@@ -1934,11 +2128,65 @@ class DrawingWindow(QMainWindow):
         if not self._export_busy:
             self.export_selected()
 
+    def analyze_selected(self):
+        if self._analysis_cancel is not None:
+            self._analysis_cancel.set();return
+        docs = [self.documents[item.data(Qt.ItemDataRole.UserRole)] for item in
+                sorted(self.file_list.selectedItems(), key=self.file_list.row)
+                if item.data(Qt.ItemDataRole.UserRole) in self.documents]
+        if not self._closing and not self._export_busy and docs and all(d.loaded for d in docs):
+            action = report_dialog(self, docs)
+            if action == 2:
+                mode = 'inspect'
+                self._analysis_seq += 1; self._analysis_cancel = threading.Event()
+                snapshots = [(str(d.path), d.states(), d.page_index, d.source_signature) for d in docs]
+                self._analysis_snapshots = tuple((d, snapshot) for d, snapshot in zip(docs, snapshots))
+                self._sync_actions();self.statusBar().showMessage('원본 분석 중… 위의 분석 취소 버튼으로 중단 요청 가능')
+                self._submit(RenderTask(mode,self._analysis_seq,'',{},0,
+                                        jobs=snapshots,cancel_event=self._analysis_cancel))
+
+    def export_advanced(self):
+        if self._export_busy or self._closing or self._analysis_cancel is not None:return
+        docs=self.selected_docs()
+        if not docs or any(not doc.loaded for doc in docs):return
+        try:
+            region = None
+            if (len(docs)==1 and docs[0] is self.current_doc() and docs[0].kind=='pdf'
+                    and self._preview_displayed_seq == self._preview_seq
+                    and not self._preview_busy and not self._preview_pending):
+                region = viewport_region(self.canvas.page_size, self.canvas.visible_clip())
+            dialog=AdvancedExportDialog(self,self._rules,self._output_options(),docs,viewport=region)
+        except DrawingError as exc:
+            QMessageBox.warning(self,'출력 설정 오류',str(exc));return
+        if not dialog.exec():return
+        params=dialog.parameters()
+        directory = self._request_output_directory()
+        if directory is None:return
+        try:
+            opts=dialog.options()
+            # Keep page extent for group/individual extraction; original export
+            # continues to honor the user's crop setting without changes.
+            if params['mode']!='current':opts=replace(opts,crop_margins=False)
+            jobs=plan_advanced_exports(docs,directory,opts,**params)
+        except (DrawingError,OSError,ValueError) as exc:
+            QMessageBox.warning(self,'조합 추출 준비 오류',str(exc));return
+        answer=QMessageBox.question(self,'조합 추출 확인',
+            f'{len(docs)}개 도면에서 {len(jobs)}개 {opts.fmt.upper()} 출력 작업을 실행합니다.\n'
+            +('분리 모드는 흰 여백 제거를 적용하지 않으며, PDF 비레이어 내용은 남을 수 있습니다.\n' if params['mode']!='current' else '')
+            +('주의: PDF는 숨김 레이어 등 원본 데이터가 남습니다. 보안 삭제용이 아닙니다.\n' if opts.fmt=='pdf' else '')
+            +('SVG는 시각적 변환이며 원본 래스터와 문자 경로가 포함될 수 있습니다.\n' if opts.fmt=='svg' else '')
+            +('DXF는 지원 객체의 모델 공간 복사입니다. 정적 블록의 모든 참조 레이어를 선택해야 하며 원본 프로젝트/CRS를 보존하지 않습니다.\n' if opts.fmt=='dxf' else '')
+            +('PDF 지정 영역: '+str(tuple(round(v*100,4) for v in opts.region))+'% · 자동 여백 제거 미적용\n' if opts.region else '')
+            +f'저장 폴더: {directory.resolve()}\n원본과 현재 레이어 상태는 수정하지 않습니다. 계속할까요?',
+            QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No,QMessageBox.StandardButton.No)
+        if answer==QMessageBox.StandardButton.Yes:self._start_export_jobs(jobs,opts,directory)
+
     def export_selected(self):
+        if self._closing or self._analysis_cancel is not None:return
         if self._export_busy:
             if self._export_cancel:self._export_cancel.set()
-            self.export_button.setEnabled(False)
-            self.export_button.setText('취소 요청됨')
+            self._sync_actions()
+            self.statusBar().showMessage('추출 취소 요청됨 · 진행 중인 작업 정리 대기')
             return
         docs=self.selected_docs()
         if any(not doc.loaded for doc in docs):
@@ -1948,28 +2196,101 @@ class DrawingWindow(QMainWindow):
         if not docs:
             QMessageBox.information(self,'도면 미선택','좌측에서 추출할 도면을 선택하세요. Ctrl/Shift 복수 선택이 가능합니다.')
             return
-        directory=Path(self.output_folder.text().strip()).expanduser()
-        opts=self._output_options()
+        directory = self._request_output_directory()
+        if directory is None:return
         try:
-            jobs=plan_exports(docs,directory,opts)
-        except DrawingError as exc:
+            opts=self._output_options()
+            jobs=plan_exports(docs,directory,opts,
+                 source_root=self._last_folder_root if self.folder_tree_option.isChecked() else None)
+        except (DrawingError,OSError,ValueError) as exc:
             QMessageBox.warning(self,'이미지 추출 준비 오류',str(exc))
             return
         if len(jobs)>1:
             answer=QMessageBox.question(self,'일괄 이미지 추출',
                 f'선택한 {len(jobs)}개 도면을 {opts.fmt.upper()} 이미지로 각각 저장합니다.\n'
                 '각 도면의 현재 페이지 1장 및 현재 레이어 ON/OFF 상태를 사용합니다.\n'
-                f'저장 폴더: {directory.resolve()}\n\n계속할까요?',
+                f'저장 폴더: {directory.resolve()}\n'
+                + ('원본 사업 폴더의 하위 구조를 출력에 유지합니다.\n' if self.folder_tree_option.isChecked() else '')
+                + '\n계속할까요?',
                 QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No)
             if answer!=QMessageBox.StandardButton.Yes:return
+        self._start_export_jobs(jobs,opts,directory)
+
+    def retry_batch(self):
+        if self._closing or self._export_busy or self._analysis_cancel is not None:
+            return
+        if self._batch_session is None:
+            if not self._batch_checkpoint.is_file():
+                return
+            try:
+                session = BatchSession.load_checkpoint(self._batch_checkpoint)
+            except DrawingError as exc:
+                QMessageBox.warning(self, '이전 작업 기록 오류', str(exc))
+                return
+            answer = QMessageBox.question(
+                self, '이전 작업 복원',
+                f'지난 작업 {len(session.jobs)}개가 기록되어 있습니다.\n'
+                '원본 경로와 출력 경로가 기록된 파일을 사용합니다.\n'
+                '원본 상태를 재검사하고 미완료 항목만 재실행할까요?',
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No)
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+            self._batch_session = session
+            self._sync_actions()
+        jobs, blocked = self._batch_session.retry_plan()
+        summary = f'재실행 가능 {len(jobs)}개 · 보호/원본 변경으로 제외 {len(blocked)}개'
+        if blocked:
+            summary += '\n' + '\n'.join(f'{Path(target).name}: {reason}' for target, reason in blocked[:5])
+        if not jobs:
+            QMessageBox.information(self, '미완료 재실행', summary); return
+        answer = QMessageBox.question(self, '미완료 재실행', summary + '\n이전 출력 조건 그대로 재실행할까요?',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+        if answer == QMessageBox.StandardButton.Yes:
+            parents = [str(Path(job.target).parent) for job in self._batch_session.jobs]
+            root = Path(os.path.commonpath(parents))
+            self._start_export_jobs(jobs, self._batch_session.options, root, retry=True)
+
+    def save_batch_report(self):
+        if self._batch_session is None or self._export_busy or self._closing:
+            return
+        path, _ = QFileDialog.getSaveFileName(self, '일괄 추출 결과 기록 (원본·출력 경로 포함)', '', 'JSON (*.json)')
+        if not path:
+            return
+        try:
+            self._batch_session.save_report(path)
+        except (OSError, ValueError, DrawingError) as exc:
+            QMessageBox.warning(self, '결과 기록 실패', str(exc)); return
+        self.statusBar().showMessage('결과 기록 저장 완료', 10000)
+
+    def _save_checkpoint(self):
+        if self._batch_session is None:
+            return
+        try:
+            self._batch_session.save_checkpoint(self._batch_checkpoint)
+        except (DrawingError, OSError) as exc:
+            # The image export is independent from its optional recovery record.
+            QMessageBox.warning(self, '작업 복원 기록 오류',
+                                str(exc) + '\n프로그램 종료 후 자동 복원은 보장되지 않습니다.')
+
+    def _start_export_jobs(self,jobs,opts,directory,*,retry=False):
+        try:
+            prepare_output_folders(jobs, directory)
+        except (DrawingError, OSError) as exc:
+            QMessageBox.warning(self,'출력 폴더 검증 실패',str(exc))
+            return
+        if not retry:
+            self._batch_session = BatchSession(tuple(jobs), opts)
+        self._save_checkpoint()
+        self._batch_attempt = tuple(jobs)
         self._settings.setValue('output_folder',str(directory))
         self._export_seq+=1
         self._export_busy=True
         self._export_cancel=threading.Event()
-        self.export_button.setText('일괄 추출 취소' if len(jobs)>1 else '추출 취소')
+        self.export_target_hint.setText(f'출력 작업 {len(jobs)}개')
         self.export_button.setIcon(self._icon('stop_white'))
         self.progress.setValue(0);self.progress.show()
-        self.statusBar().showMessage(f'선택 도면 {len(jobs)}개 · {self.resolution_combo.currentText()} 추출 중…')
+        self.statusBar().showMessage(f'출력 작업 {len(jobs)}개 · {opts.fmt.upper()} 추출 중…')
         self._sync_actions()
         self._submit(RenderTask('batch_export',self._export_seq,'',{},0,
                      options=opts,cancel_event=self._export_cancel,jobs=jobs))
@@ -1980,7 +2301,7 @@ class DrawingWindow(QMainWindow):
         task.signals.error.connect(self._error)
         task.signals.progress.connect(self._progress)
         task.signals.batch_progress.connect(self._batch_progress)
-        (self.export_pool if task.mode in ('batch_export','export') else self.pool).start(task)
+        (self.export_pool if task.mode in ('batch_export','export','inspect') else self.pool).start(task)
 
     def _progress(self,mode,seq,value):
         if self._closing:
@@ -2001,7 +2322,8 @@ class DrawingWindow(QMainWindow):
         if seq != self._export_seq or not self._export_busy:return
         amount=0 if total==0 else (index+fraction)/total
         self.progress.setValue(max(0,min(100,round(amount*100))))
-        self.statusBar().showMessage(f'일괄 이미지 추출 {min(index+1,total)}/{total} · {name} · {round(amount*100)}%')
+        self.export_target_hint.setText(f'{min(index+1,total)}/{total} · {round(amount*100)}%')
+        self.statusBar().showMessage(f'일괄 도면 출력 {min(index+1,total)}/{total} · {name} · {round(amount*100)}%')
 
     def _restore_export_ui(self):
         self._export_busy=False
@@ -2031,7 +2353,39 @@ class DrawingWindow(QMainWindow):
             elif mode in ('batch_export','export'):
                 self._export_busy=False
             return
-        if mode=='catalog':
+        if mode == 'folder':
+            if seq != self._folder_seq or self._folder_cancel is None:
+                return
+            cancelled = self._folder_cancel.is_set()
+            self._folder_cancel = None
+            self._sync_actions()
+            if cancelled:
+                self.statusBar().showMessage('폴더 검색 취소', 5000)
+            elif result:
+                self._last_folder_root = str(self._folder_search_root)
+                self.add_files(result)
+            else:
+                self.statusBar().showMessage('폴더에 지원 도면이 없습니다.', 10000)
+            return
+        if mode == 'inspect':
+            if seq != self._analysis_seq or self._analysis_cancel is None:
+                return
+            cancelled = self._analysis_cancel is None or self._analysis_cancel.is_set()
+            if not cancelled:
+                try:
+                    for doc, (path, states, page, signature) in self._analysis_snapshots:
+                        if not analysis_snapshot_is_current(doc, (path, states, page, signature), self.documents):
+                            cancelled = True; break
+                        verify_source(path, signature)
+                except (DrawingError, OSError):
+                    cancelled = True
+            self._analysis_snapshots = ()
+            self._analysis_cancel=None;self._sync_actions()
+            if not cancelled and seq==self._analysis_seq:
+                self.statusBar().showMessage('원본 분석 완료',5000)
+                detail_report_dialog(self,result)
+            else: self.statusBar().showMessage('원본 분석 취소',5000)
+        elif mode=='catalog':
             expected_path = self._catalog_paths.pop(seq, None)
             path, layers, pages = result
             if not catalog_result_is_current(seq,path,expected_path,self._catalog_latest,self.documents):
@@ -2047,14 +2401,15 @@ class DrawingWindow(QMainWindow):
                 try:
                     data,size=result
                     self.canvas.show_png(data,size)
+                    self._preview_displayed_seq = seq
                     doc=self.current_doc()
                     if doc:
-                        self.view_status.setText(f'100% · {doc.kind.upper()} · {len(doc.layers())}개 레이어 · '+
+                        self.view_status.setText(f'100% · {doc.kind.upper()} · {doc.layer_count}개 레이어 · '+
                                                  ('표시 변경 반영' if doc.dirty else '원본 표시'))
                     self.request_detail()
                 except (DrawingError, RuntimeError, ValueError) as exc:
                     self.view_status.setText('미리보기 표시 실패: '+str(exc))
-            if self._preview_pending:self._start_preview()
+            if self._preview_pending and not self.preview_timer.isActive():self._start_preview()
         elif mode=='detail':
             self._detail_busy=False
             self._detail_cancel=None
@@ -2070,24 +2425,27 @@ class DrawingWindow(QMainWindow):
         elif mode=='batch_export':
             if seq != self._export_seq or not self._export_busy:
                 return
+            if self._batch_session is not None:
+                self._batch_session.record(self._batch_attempt, result)
+                self._save_checkpoint()
             self._restore_export_ui()
             self.statusBar().showMessage(
                 f'일괄 추출 결과 · 완료 {len(result.completed)}개 · 실패 {len(result.errors)}개'+
                 (' · 취소됨' if result.cancelled else ''),15000)
             detail=('\n'.join(result.completed[:5]) + ('\n…' if len(result.completed)>5 else ''))
-            failures='\n'.join(f'{name}: {error}' for name,error in result.errors[:8])
+            failures='\n'.join(f'{Path(name).name}: {error}' for name,error in result.errors[:8])
             summary=(f'저장 완료: {len(result.completed)}개\n실패: {len(result.errors)}개'
                      +('\n사용자가 중단한 작업입니다.' if result.cancelled else '')
                      +(f'\n\n완료된 파일:\n{detail}' if detail else '')
                      +(f'\n\n실패 항목:\n{failures}' if failures else ''))
             if result.errors:
-                QMessageBox.warning(self,'일괄 이미지 추출 결과',summary)
+                QMessageBox.warning(self,'일괄 도면 출력 결과',summary)
             elif result.cancelled or not result.completed:
-                QMessageBox.information(self,'일괄 이미지 추출 결과',summary)
+                QMessageBox.information(self,'일괄 도면 출력 결과',summary)
             elif self._open_export_folder(result.completed):
                 self.statusBar().showMessage(f'저장 완료 {len(result.completed)}개 · 저장 폴더를 열었습니다.',15000)
             else:
-                QMessageBox.information(self,'일괄 이미지 추출 결과',summary+'\n\n저장 폴더를 자동으로 열지 못했습니다.')
+                QMessageBox.information(self,'일괄 도면 출력 결과',summary+'\n\n저장 폴더를 자동으로 열지 못했습니다.')
         else:
             if mode != 'export' or seq != self._export_seq or not self._export_busy:
                 return
@@ -2106,13 +2464,33 @@ class DrawingWindow(QMainWindow):
             elif mode in ('batch_export','export'):
                 self._export_busy=False
             return
-        if mode=='catalog':
+        if mode == 'folder':
+            if seq != self._folder_seq or self._folder_cancel is None:
+                return
+            cancelled = self._folder_cancel.is_set()
+            self._folder_cancel = None
+            self._sync_actions()
+            if not cancelled:
+                QMessageBox.warning(self, '폴더 검색 오류', error)
+            else:
+                self.statusBar().showMessage('폴더 검색 취소', 5000)
+            return
+        if mode == 'inspect':
+            if seq != self._analysis_seq or self._analysis_cancel is None:
+                return
+            cancelled = self._analysis_cancel is None or self._analysis_cancel.is_set()
+            self._analysis_snapshots = ()
+            self._analysis_cancel=None;self._sync_actions()
+            self.statusBar().showMessage('원본 분석 취소' if cancelled else '원본 분석 실패',5000)
+            if not cancelled: QMessageBox.warning(self,'원본 분석 오류',error)
+        elif mode=='catalog':
             path = self._catalog_paths.pop(seq, None)
             if not catalog_result_is_current(seq,path,path,self._catalog_latest,self.documents):
                 return
             self._catalog_latest.pop(path, None)
             self._catalog_cancellations.pop(path, None)
             if path is not None:
+                self.documents[path].catalog_error = error
                 for row in range(self.file_list.count()):
                     item = self.file_list.item(row)
                     if item.data(Qt.ItemDataRole.UserRole) == path:
@@ -2129,20 +2507,31 @@ class DrawingWindow(QMainWindow):
             self._preview_cancel=None
             self.cancel_preview_button.hide()
             if seq==self._preview_seq and '중단' not in error:
+                self.canvas.clear_preview()
+                self._update_zoom_label()
                 self.view_status.setText('미리보기 실패: '+error)
-            if self._preview_pending:self._start_preview()
+            if self._preview_pending and not self.preview_timer.isActive():self._start_preview()
         elif mode=='detail':
             self._detail_busy=False
             self._detail_cancel=None
-            if seq==self._detail_seq:self.view_status.setText('확대 렌더링 오류: '+error)
+            if seq==self._detail_seq:
+                if '원본 도면이 변경' in error or '원본 레이어 정보가 변경' in error:
+                    self.canvas.clear_preview()
+                    self._update_zoom_label()
+                self.view_status.setText('확대 렌더링 오류: '+error)
             if self._detail_pending and not self.detail_timer.isActive():
                 self.detail_timer.start()
         else:
+            if seq != self._export_seq or not self._export_busy:
+                return
+            if mode == 'batch_export' and self._batch_session is not None:
+                self._batch_session.record(self._batch_attempt, error=error)
+                self._save_checkpoint()
             self._restore_export_ui()
             if '취소' in error:
-                self.statusBar().showMessage('이미지 추출 취소됨. 불완전 파일은 삭제했습니다.',10000)
+                self.statusBar().showMessage('도면 출력 취소됨. 불완전 파일은 삭제했습니다.',10000)
             else:
-                QMessageBox.warning(self,'이미지 추출 실패',error)
+                QMessageBox.warning(self,'도면 출력 실패',error)
 
     def _pools_idle(self):
         return (self.pool.waitForDone(0) and self.export_pool.waitForDone(0)
@@ -2194,6 +2583,8 @@ class DrawingWindow(QMainWindow):
 
     def closeEvent(self,event):
         self.preview_timer.stop();self.detail_timer.stop()
+        if self._folder_cancel is not None:
+            self._folder_cancel.set()
         for event_to_cancel in self._catalog_cancellations.values():
             event_to_cancel.set()
         if not self._pools_idle():
@@ -2205,6 +2596,7 @@ class DrawingWindow(QMainWindow):
             self._closing=True
             self._close_requested_at=time.monotonic()
             self.cancel_preview()
+            if self._analysis_cancel is not None: self._analysis_cancel.set()
             if self._export_cancel is not None:
                 self._export_cancel.set()
             self.pool.clear();self.export_pool.clear();self.catalog_pool.clear()

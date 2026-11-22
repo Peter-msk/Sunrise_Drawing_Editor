@@ -60,9 +60,10 @@ def main():
     if cleanup is not None:
         from PySide6.QtCore import QTimer
         from threading import Thread
-        from drawing_editor.update_policy import cleanup_after_start
+        from drawing_editor.update_policy import acknowledge_start, cleanup_after_start
         def cleanup_worker():
-            if not cleanup_after_start(sys.executable, *cleanup):
+            if not (acknowledge_start(sys.executable, *cleanup) and
+                    cleanup_after_start(sys.executable, *cleanup)):
                 from drawing_editor.onefile_update import report_update_error, UpdateError
                 report_update_error(UpdateError('이전 EXE 정리 미완료; 검증 가능한 롤백 파일 보존'),
                                     '업데이트 후 정리')

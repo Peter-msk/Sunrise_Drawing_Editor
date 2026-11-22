@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from build.functional_gate import read_functional_qa, STATUS, REQUIRED
+from build.functional_gate import read_functional_qa, STATUS, REQUIRED, V130_REQUIRED, V140_REQUIRED, EXTRACTION_REQUIRED
 
 
 class FunctionalGateTests(unittest.TestCase):
@@ -24,6 +24,34 @@ class FunctionalGateTests(unittest.TestCase):
 
     def test_valid(self):
         self.assertEqual(self.check(), self.data)
+
+    def test_new_version_requires_new_checks(self):
+        self.check()
+        with self.assertRaises(RuntimeError):read_functional_qa(self.path,self.sha,version='1.3.0')
+        self.assertEqual(read_functional_qa(self.path,self.sha,version='1.2.0'),self.data)
+        self.data['checks_passed']=sorted(V130_REQUIRED)
+        self.check()
+        self.assertEqual(read_functional_qa(self.path,self.sha,version='1.3.0'),self.data)
+
+    def test_v140_requires_vector_evidence(self):
+        self.data['checks_passed']=sorted(V130_REQUIRED)
+        self.check()
+        with self.assertRaises(RuntimeError):read_functional_qa(self.path,self.sha,version='1.4.0')
+        self.data['checks_passed']=sorted(V140_REQUIRED)
+        self.check()
+        self.assertEqual(read_functional_qa(self.path,self.sha,version='1.4.0'),self.data)
+        self.assertEqual(read_functional_qa(self.path,self.sha,version='1.3.0'),self.data)
+
+    def test_extraction_only_evidence(self):
+        self.data['checks_passed']=sorted(V140_REQUIRED)
+        self.check()
+        with self.assertRaises(RuntimeError):read_functional_qa(self.path,self.sha,version='1.4.0',extraction_only=True)
+        self.data['checks_passed']=sorted(EXTRACTION_REQUIRED)
+        self.check()
+        self.assertEqual(read_functional_qa(self.path,self.sha,version='1.4.0',extraction_only=True),self.data)
+        self.assertEqual(read_functional_qa(self.path,self.sha,version='1.4.0'),self.data)
+        self.data['checks_passed'].remove('dxf_compound_native');self.check()
+        with self.assertRaises(RuntimeError):read_functional_qa(self.path,self.sha,version='1.4.0',extraction_only=True)
 
     def test_missing(self):
         with self.assertRaises(RuntimeError):

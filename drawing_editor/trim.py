@@ -78,7 +78,8 @@ def find_content_crop(page, full_width: int, full_height: int, *,
                     alpha_bbox = _union(alpha_bbox, alpha.getbbox(), y0)
                 finally:
                     alpha.close()
-            color_bbox = _union(color_bbox, _colored_bbox(image), y0)
+            if not partially_clear:
+                color_bbox = _union(color_bbox, _colored_bbox(image), y0)
         finally:
             image.close()
     bbox = alpha_bbox if partially_clear else color_bbox
@@ -126,7 +127,8 @@ def save_png_tiled_crop_single_pass(page, stream, full_width: int,
                         alpha_bbox = _union(alpha_bbox, alpha.getbbox(), y0)
                     finally:
                         alpha.close()
-                color_bbox = _union(color_bbox, _colored_bbox(image), y0)
+                if not partially_clear:
+                    color_bbox = _union(color_bbox, _colored_bbox(image), y0)
             finally:
                 image.close()
         bbox = alpha_bbox if partially_clear else color_bbox

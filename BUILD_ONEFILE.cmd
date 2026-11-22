@@ -59,7 +59,7 @@ if errorlevel 1 goto :failed
 %PY_RUN% -m compileall -q "main.py" "drawing_editor" "build"
 if errorlevel 1 goto :failed
 if /I "%BUILD_RUN_TESTS%"=="1" (
-    echo [INFO] BUILD_RUN_TESTS=1: running focused v1.1.0 regression tests.
+    echo [INFO] BUILD_RUN_TESTS=1: running focused regression tests.
     %PY_RUN% -m unittest discover -s build -p "test_v110.py" -v
     if errorlevel 1 goto :failed
     %PY_RUN% "build\test_release_gate.py"
@@ -75,6 +75,26 @@ if /I "%BUILD_RUN_TESTS%"=="1" (
     %PY_RUN% "build\test_control_policy.py"
     if errorlevel 1 goto :failed
     %PY_RUN% "build\test_update_policy.py"
+    if errorlevel 1 goto :failed
+    %PY_RUN% "build\test_layer_tools.py"
+    if errorlevel 1 goto :failed
+    %PY_RUN% "build\test_v130.py"
+    if errorlevel 1 goto :failed
+    %PY_RUN% "build\test_v130_r02.py"
+    if errorlevel 1 goto :failed
+    %PY_RUN% "build\test_v130_r03.py"
+    if errorlevel 1 goto :failed
+    %PY_RUN% "build\test_v130_r04.py"
+    if errorlevel 1 goto :failed
+    %PY_RUN% "build\test_v130_r05.py"
+    if errorlevel 1 goto :failed
+    %PY_RUN% "build\test_v140.py"
+    if errorlevel 1 goto :failed
+    %PY_RUN% "build\test_v140_r02.py"
+    if errorlevel 1 goto :failed
+    %PY_RUN% "build\test_v140_r03.py"
+    if errorlevel 1 goto :failed
+    %PY_RUN% "build\test_v140_r04.py"
     if errorlevel 1 goto :failed
 ) else (
     echo [INFO] Targeted packaged drawing QA is mandatory; full source suite is optional.

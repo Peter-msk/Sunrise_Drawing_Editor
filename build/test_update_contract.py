@@ -14,7 +14,7 @@ from drawing_editor import onefile_update as update
 from build.release_metadata import build_metadata
 from build.approve_update import approved_metadata
 
-VER='1.1.0' if APP_VERSION=='1.0.0' else '1.2.0'
+VER='.'.join(str(v) for v in (*map(int, APP_VERSION.split('.')[:2]), int(APP_VERSION.split('.')[-1])+1))
 SHA='6be1ef16d85b388bf5f734bef19c6ab28ac574dc8e11594e8f21f5dd171a41e1'
 SIZE=74442984
 
@@ -79,9 +79,12 @@ class ContractTests(unittest.TestCase):
             for launch_failure in (False, True):
                 with self.subTest(name=name, failure=launch_failure), tempfile.TemporaryDirectory() as tmp:
                     target=Path(tmp)/name; target.write_bytes(b'old')
-                    stage=Path(tmp)/'.sunrise-update-test';stage.mkdir();candidate=stage/'candidate.exe';candidate.write_bytes(b'new')
+                    stage=Path(tmp)/'.sunrise-update-abcdefgh';stage.mkdir();candidate=stage/'candidate.exe';candidate.write_bytes(b'new')
                     args=[str(target),update.digest(target),update.digest(candidate),APP_VERSION,'0.9.0','123']
-                    with patch.object(update.sys,'platform','win32'),patch.object(update.sys,'frozen',True,create=True),patch.object(update.sys,'executable',str(candidate)),patch.object(update,'verify_release_authority'),patch.object(update,'_wait_for_exit'),patch.object(update,'check_policy',return_value=Policy()),patch.object(update.subprocess,'Popen',side_effect=OSError('launch failed') if launch_failure else None):
+                    def launch(*args, **kwargs):
+                        if launch_failure: raise OSError('launch failed')
+                        (stage / update.STARTUP_PENDING).unlink()
+                    with patch.object(update.sys,'platform','win32'),patch.object(update.sys,'frozen',True,create=True),patch.object(update.sys,'executable',str(candidate)),patch.object(update,'verify_release_authority'),patch.object(update,'_wait_for_exit'),patch.object(update,'check_policy',return_value=Policy()),patch.object(update.subprocess,'Popen',side_effect=launch):
                         if launch_failure:
                             with self.assertRaises(OSError):update.apply_update(args)
                             self.assertEqual(target.read_bytes(),b'old')
@@ -89,9 +92,25 @@ class ContractTests(unittest.TestCase):
                             self.assertEqual(update.apply_update(args),0)
                             self.assertEqual(target.read_bytes(),b'new');self.assertEqual((stage/'rollback.exe').read_bytes(),b'old')
 
+    def test_startup_early_exit_rolls_back_timeout_preserves(self):
+        from drawing_editor.control import Policy
+        from types import SimpleNamespace
+        for exited in (True, False):
+            with self.subTest(exited=exited), tempfile.TemporaryDirectory() as tmp:
+                target=Path(tmp)/ASSET_NAME;target.write_bytes(b'old')
+                stage=Path(tmp)/'.sunrise-update-abcdefgh';stage.mkdir()
+                candidate=stage/'candidate.exe';candidate.write_bytes(b'new')
+                args=[str(target),update.digest(target),update.digest(candidate),APP_VERSION,'0.9.0','123']
+                proc=SimpleNamespace(poll=lambda: 1 if exited else None)
+                with patch.object(update.sys,'platform','win32'),patch.object(update.sys,'frozen',True,create=True),patch.object(update.sys,'executable',str(candidate)),patch.object(update,'verify_release_authority'),patch.object(update,'_wait_for_exit'),patch.object(update,'check_policy',return_value=Policy()),patch.object(update.subprocess,'Popen',return_value=proc),patch.object(update.time,'monotonic',side_effect=[0, 0, 121]):
+                    with self.assertRaises(update.UpdateError):update.apply_update(args)
+                self.assertEqual(target.read_bytes(), b'old' if exited else b'new')
+                if not exited:self.assertEqual((stage/'rollback.exe').read_bytes(),b'old')
+                self.assertTrue((stage/update.STARTUP_PENDING).exists())
+
     def test_official_feed_mismatch_blocks_before_swap(self):
         with tempfile.TemporaryDirectory() as tmp:
-            target=Path(tmp)/ASSET_NAME;target.write_bytes(b'old');stage=Path(tmp)/'.sunrise-update-test';stage.mkdir();candidate=stage/'candidate.exe';candidate.write_bytes(b'new')
+            target=Path(tmp)/ASSET_NAME;target.write_bytes(b'old');stage=Path(tmp)/'.sunrise-update-abcdefgh';stage.mkdir();candidate=stage/'candidate.exe';candidate.write_bytes(b'new')
             args=[str(target),update.digest(target),update.digest(candidate),APP_VERSION,'0.9.0','123']
             with patch.object(update.sys,'platform','win32'),patch.object(update.sys,'frozen',True,create=True),patch.object(update.sys,'executable',str(candidate)),patch.object(update,'verify_release_authority',side_effect=update.UpdateError('feed mismatch')),patch.object(update,'_wait_for_exit') as wait:
                 with self.assertRaises(update.UpdateError):update.apply_update(args)
