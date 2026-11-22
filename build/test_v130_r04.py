@@ -57,11 +57,11 @@ class Census(unittest.TestCase):
         with self.assertRaises(DrawingError):inspect_source((str(self.p),{},0,sig))
 
 class Contracts(V130Tests):
-    def test_crop_rejected_consistently(self):
+    def test_crop_supported_for_isolated_layers(self):
         d=self.pdf(); opts=replace(self.opts,crop_margins=True)
         body=dict(schema_version=1,options=asdict(opts),mode='layers',scope='current',page_range='',groups=[],rules=[])
-        with self.assertRaises(DrawingError):checked_profile(body)
-        with self.assertRaises(DrawingError):plan_advanced_exports([d],self.root,opts,mode='layers')
+        self.assertEqual(checked_profile(body)[0].crop_margins, True)
+        self.assertEqual(len(plan_advanced_exports([d],self.root,opts,mode='layers')),2)
         body['mode']='current';checked_profile(body)
 if __name__=='__main__':
     suite=unittest.TestLoader().loadTestsFromTestCase(Census)

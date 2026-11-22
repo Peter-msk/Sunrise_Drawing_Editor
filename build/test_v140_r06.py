@@ -70,12 +70,14 @@ class QtInteractionTests(unittest.TestCase):
         from drawing_editor.core import DrawingError
         with self.assertRaises(DrawingError):d._validated_settings()
     def test_rows_and_viewport_region(self):
-        d=self.dialog;self.assertTrue(d.page_range.isHidden());self.assertTrue(d.effect_value.isHidden())
-        d.effect.setCurrentIndex(d.effect.findData('region'));self.assertFalse(d.effect_value.isHidden());self.assertTrue(d.viewport_button.isEnabled())
-        d._use_viewport();self.assertEqual(d.options().region,(.1,.2,.8,.9))
-        d.scope.setCurrentIndex(d.scope.findData('range'));self.assertFalse(d.page_range.isHidden());self.assertFalse(d.viewport_button.isEnabled())
+        d=self.dialog;self.assertTrue(d.page_range.isHidden());self.assertTrue(d.region_row.isHidden())
+        d.effect.setCurrentIndex(d.effect.findData('region'));self.assertFalse(d.region_row.isHidden());self.assertTrue(d.select_region_button.isEnabled())
+        from drawing_editor.core import DrawingError
+        with self.assertRaises(DrawingError): d.options()
+        d.set_drag_region((.1,.2,.8,.9));self.assertEqual(d.options().region,(.1,.2,.8,.9))
+        d.scope.setCurrentIndex(d.scope.findData('range'));self.assertFalse(d.page_range.isHidden());self.assertFalse(d.select_region_button.isEnabled())
         d.page_range.setText('2-3');d.format.setCurrentIndex(d.format.findData('pdf'))
-        self.assertTrue(d.effect_value.isHidden());self.assertIsNone(d.options().region)
+        self.assertTrue(d.region_row.isHidden());self.assertIsNone(d.options().region)
         d.scope.setCurrentIndex(d.scope.findData('current'));self.assertEqual(d.parameters()['page_range'],'')
     def test_profile_restore_checked_rules(self):
         from drawing_editor.core import OutputOptions
@@ -86,7 +88,7 @@ class QtInteractionTests(unittest.TestCase):
         self.assertEqual([r.name for r in self.dialog.parameters()['rules']],['water'])
         self.assertEqual(self.dialog.parameters()['page_range'],'2-3')
     def test_hidden_inputs_do_not_change_output(self):
-        d=self.dialog;d.effect.setCurrentIndex(d.effect.findData('region'));d.effect_value.setText('10,20,80,90')
+        d=self.dialog;d.effect.setCurrentIndex(d.effect.findData('region'));d.set_drag_region((.1,.2,.8,.9))
         d.effect.setCurrentIndex(d.effect.findData('none'));self.assertIsNone(d.options().region)
         d.effect.setCurrentIndex(d.effect.findData('region'));self.assertEqual(d.options().region,(.1,.2,.8,.9))
 

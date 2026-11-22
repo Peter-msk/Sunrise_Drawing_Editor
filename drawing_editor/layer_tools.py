@@ -169,8 +169,6 @@ def plan_advanced_exports(docs, folder, options, *, mode='current', scope='curre
                           page_range='', groups=(), rules=()):
     """Plan everything before starting worker. Never change GUI/source state."""
     opts = options.checked()
-    if opts.crop_margins and mode != 'current':
-        raise DrawingError('레이어 분리 추출에는 자동 여백 제거를 적용할 수 없습니다.')
     root = Path(folder).expanduser().resolve()
     if not root.is_dir() or not docs or any(not doc.loaded for doc in docs):
         raise DrawingError('저장 폴더와 분석 완료된 도면을 선택하세요.')

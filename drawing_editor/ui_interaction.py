@@ -142,3 +142,25 @@ def advanced_fields(fmt: str, scope: str, effect: str, viewport_available: bool)
     """Visible range / region fields and availability of viewport capture."""
     region = fmt == 'raster' and effect == 'region'
     return scope == 'range', region, region and scope == 'current' and viewport_available
+
+
+def normalized_drag_region(page_size, start, end):
+    """Convert an on-screen drag in *displayed page* coordinates to 0..1 bounds.
+
+    Rotation is already reflected in the scene's page_size.  Reject non-finite
+    and degenerate rectangles; never use widget pixels as export coordinates.
+    """
+    from math import isfinite
+    if (len(page_size) != 2 or len(start) != 2 or len(end) != 2 or
+            not all(isfinite(v) for v in (*page_size, *start, *end))):
+        return None
+    width, height = page_size
+    if width <= 0 or height <= 0:
+        return None
+    x0 = min(max(min(start[0], end[0]), 0.), width)
+    x1 = min(max(max(start[0], end[0]), 0.), width)
+    y0 = min(max(min(start[1], end[1]), 0.), height)
+    y1 = min(max(max(start[1], end[1]), 0.), height)
+    if x1 - x0 < width * 1e-6 or y1 - y0 < height * 1e-6:
+        return None
+    return (x0 / width, y0 / height, x1 / width, y1 / height)

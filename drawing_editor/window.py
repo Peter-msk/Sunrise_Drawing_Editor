@@ -8,11 +8,11 @@ import threading
 import time
 
 from PySide6.QtCore import Qt, QRunnable, QThreadPool, QTimer, QObject, Signal, QSettings, QRectF, QStandardPaths, QSize, QEvent, QUrl
-from PySide6.QtGui import QColor, QBrush, QPainter, QPixmap, QIcon, QTransform, QAction, QPalette, QDesktopServices
+from PySide6.QtGui import QColor, QBrush, QPainter, QPixmap, QIcon, QTransform, QAction, QPalette, QDesktopServices, QPen
 from PySide6.QtWidgets import (
     QMainWindow, QToolBar, QWidget, QLabel, QFrame, QHBoxLayout, QVBoxLayout, QBoxLayout,
     QPushButton, QListWidget, QListWidgetItem, QAbstractItemView, QTreeWidget,
-    QTreeWidgetItem, QGraphicsScene, QGraphicsView, QGraphicsPixmapItem,
+    QTreeWidgetItem, QGraphicsScene, QGraphicsView, QGraphicsPixmapItem, QGraphicsRectItem, QDialog,
     QFileDialog, QMessageBox, QComboBox, QGroupBox, QSizePolicy, QLineEdit,
     QToolButton, QRadioButton, QButtonGroup, QProgressBar, QInputDialog, QCheckBox,
     QSpinBox, QHeaderView, QApplication, QScrollArea,
@@ -24,7 +24,7 @@ from .batch import LayerRule, LayerRuleStore, apply_rule, plan_exports, prepare_
 from .automation import BatchSession, discover_drawings
 from .batch_worker import run_batch_exports_isolated
 from .layer_tools import plan_advanced_exports
-from .layer_tools_ui import AdvancedExportDialog, group_dialog, common_dialog, report_dialog, detail_report_dialog
+from .layer_tools_ui import AdvancedExportDialog, group_dialog, common_dialog, report_dialog, detail_report_dialog, export_message_box
 from .output_location import completed_folder
 from .release_feed import APP_VERSION
 from .icons import icon_file
@@ -36,7 +36,7 @@ from .ui_interaction import (file_add_status,
                              zoom_factor_for_delta, clamp_zoom_factor,
                              preview_raster_size, detail_tile_covers,
                              catalog_result_is_current, layer_search_feedback, viewport_region,
-                             analysis_snapshot_is_current, export_action_state)
+                             analysis_snapshot_is_current, export_action_state, normalized_drag_region)
 
 ASSETS = Path(__file__).resolve().parent.parent / 'assets'
 # PyMuPDF's native cache is process-global. Concurrent PDF raster/metadata
@@ -49,6 +49,8 @@ _MUPDF_GATE = threading.RLock()
 class ImageCanvas(QGraphicsView):
     """Scene units = PDF page coordinates; zoom requests clip only visible region."""
     viewChanged = Signal()
+    regionPicked = Signal(object)
+    regionPickCancelled = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -75,10 +77,120 @@ class ImageCanvas(QGraphicsView):
         self._base_density = 0.
         self._detail_clip = None
         self._detail_density = 0.
+        self._region_picking = False
+        self._region_anchor = None
+        self._region_rect = None
+        self._region_screen_anchor = None
         self.horizontalScrollBar().valueChanged.connect(self.viewChanged.emit)
         self.verticalScrollBar().valueChanged.connect(self.viewChanged.emit)
 
+    def begin_region_pick(self):
+        """Select on the existing PDF page, without modifying drawing state."""
+        if self._base is None or min(self.page_size) <= 0:
+            return False
+        self.clear_region_overlay()
+        self._region_picking = True
+        self._region_anchor = None
+        self._region_screen_anchor = None
+        self.setDragMode(QGraphicsView.DragMode.NoDrag)
+        self.viewport().setCursor(Qt.CursorShape.CrossCursor)
+        self.setFocus(Qt.FocusReason.OtherFocusReason)
+        return True
+
+    def clear_region_overlay(self):
+        if self._region_rect is not None:
+            if self._region_rect.scene() is self.scene():
+                self.scene().removeItem(self._region_rect)
+            self._region_rect = None
+
+    def cancel_region_pick(self):
+        if not self._region_picking:
+            self.clear_region_overlay()
+            return
+        self._region_picking = False
+        self._region_anchor = self._region_screen_anchor = None
+        self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        self.viewport().unsetCursor()
+        self.clear_region_overlay()
+        self.regionPickCancelled.emit()
+
+    def _clamped_page_point(self, pos):
+        p = self.mapToScene(pos.toPoint())
+        return (max(0., min(p.x(), self.page_size[0])),
+                max(0., min(p.y(), self.page_size[1])))
+
+    def mousePressEvent(self, event):
+        if self._region_picking:
+            if event.button() == Qt.MouseButton.RightButton:
+                self.cancel_region_pick()
+            elif event.button() == Qt.MouseButton.LeftButton:
+                p = self.mapToScene(event.position().toPoint())
+                if not QRectF(0, 0, *self.page_size).contains(p):
+                    self._region_anchor = None
+                    self.clear_region_overlay()
+                else:
+                    self._region_anchor = (p.x(), p.y())
+                    self._region_screen_anchor = event.position().toPoint()
+                    self.clear_region_overlay()
+                    rect = QGraphicsRectItem()
+                    border = QPen(QColor('#F18B47'), 2, Qt.PenStyle.DashLine)
+                    border.setCosmetic(True)
+                    rect.setPen(border)
+                    rect.setBrush(QBrush(QColor(241, 139, 71, 45)))
+                    rect.setZValue(10)
+                    rect.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+                    self.scene().addItem(rect)
+                    self._region_rect = rect
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._region_picking:
+            if self._region_anchor is not None and self._region_rect is not None:
+                a, b = self._region_anchor, self._clamped_page_point(event.position())
+                self._region_rect.setRect(QRectF(min(a[0], b[0]), min(a[1], b[1]),
+                                                abs(b[0]-a[0]), abs(b[1]-a[1])))
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._region_picking:
+            if event.button() == Qt.MouseButton.LeftButton and self._region_anchor is not None:
+                p = self._clamped_page_point(event.position())
+                if self._region_rect is not None:
+                    a = self._region_anchor
+                    self._region_rect.setRect(QRectF(min(a[0],p[0]), min(a[1],p[1]),
+                                                   abs(p[0]-a[0]),abs(p[1]-a[1])))
+                screen_a = self._region_screen_anchor
+                wide_enough = (screen_a is not None and
+                    abs(event.position().x()-screen_a.x()) >= 8 and
+                    abs(event.position().y()-screen_a.y()) >= 8)
+                region = normalized_drag_region(self.page_size, self._region_anchor, p) if wide_enough else None
+                self._region_anchor = self._region_screen_anchor = None
+                if region is not None:
+                    self._region_picking = False
+                    self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+                    self.viewport().unsetCursor()
+                    self.regionPicked.emit(region)
+                else:
+                    self.clear_region_overlay()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event):
+        if self._region_picking and event.key() == Qt.Key.Key_Escape:
+            self.cancel_region_pick()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
     def clear_preview(self):
+        if self._region_picking:
+            self.cancel_region_pick()
+        self.clear_region_overlay()
         self.scene().clear()
         self._base = self._detail = None
         self._base_density = 0.
@@ -156,6 +268,9 @@ class ImageCanvas(QGraphicsView):
         self.viewChanged.emit()
 
     def wheelEvent(self,event):
+        if self._region_picking:
+            event.accept()
+            return
         # Ctrl+wheel zooms under the cursor. Without Ctrl, retain Qt's
         # native vertical/horizontal scrolling (including precision trackpads).
         # Shift+vertical wheel explicitly pans horizontally for mouse wheels.
@@ -485,6 +600,10 @@ class DrawingWindow(QMainWindow):
         self.catalog_pool.setMaxThreadCount(1)
         self._layer_change_guard=False
         self._filter_match_count=0
+        self._advanced_dialog = None
+        self._region_pick_dialog = None
+        self._region_pick_snapshot = None
+        self._region_pick_previous_status = None
         self._preview_seq=self._detail_seq=self._export_seq=0
         self._preview_displayed_seq = None
         self._preview_busy=self._detail_busy=self._export_busy=False
@@ -942,7 +1061,9 @@ class DrawingWindow(QMainWindow):
         preview_layout.addLayout(preview_controls)
         self.canvas = ImageCanvas()
         self.canvas.setObjectName('previewCanvas')
-        self.canvas.setAccessibleName('도면 미리보기, Ctrl+휠 확대, 일반 휠 스크롤, 드래그 이동')
+        self.canvas.setAccessibleName('도면 미리보기, Ctrl+휠 확대, 일반 휠 스크롤, 드래그 이동, 지정 영역 선택 시 사각형 드래그')
+        self.canvas.regionPicked.connect(self._on_region_picked)
+        self.canvas.regionPickCancelled.connect(self._on_region_pick_cancelled)
         self.canvas.viewChanged.connect(self._update_zoom_label)
         self.canvas.viewChanged.connect(self.request_detail)
         preview_layout.addWidget(self.canvas, 1)
@@ -1356,6 +1477,8 @@ class DrawingWindow(QMainWindow):
             qt_palette.setColor(QPalette.ColorGroup.Disabled, role, QColor(muted))
         self.setPalette(qt_palette)
         self.canvas.setBackgroundBrush(QBrush(QColor(canvas)))
+        if self._advanced_dialog is not None:
+            self._advanced_dialog.apply_theme(self._theme)
         self.light_button.setProperty('active', light)
         self.dark_button.setProperty('active', not light)
         self.light_button.setChecked(light)
@@ -2146,39 +2269,137 @@ class DrawingWindow(QMainWindow):
                                         jobs=snapshots,cancel_event=self._analysis_cancel))
 
     def export_advanced(self):
-        if self._export_busy or self._closing or self._analysis_cancel is not None:return
-        docs=self.selected_docs()
-        if not docs or any(not doc.loaded for doc in docs):return
+        if (self._export_busy or self._closing or self._analysis_cancel is not None
+                or self._advanced_dialog is not None):
+            return
+        docs = self.selected_docs()
+        if not docs or any(not doc.loaded for doc in docs):
+            return
         try:
-            region = None
-            if (len(docs)==1 and docs[0] is self.current_doc() and docs[0].kind=='pdf'
+            # A canvas drag is valid only for the active, fully rendered PDF.
+            region_available = None
+            if (self.current_doc() in docs and all(d.kind == 'pdf' for d in docs)
                     and self._preview_displayed_seq == self._preview_seq
-                    and not self._preview_busy and not self._preview_pending):
-                region = viewport_region(self.canvas.page_size, self.canvas.visible_clip())
-            dialog=AdvancedExportDialog(self,self._rules,self._output_options(),docs,viewport=region)
+                    and not self._preview_busy and not self._preview_pending
+                    and self.canvas._base is not None):
+                region_available = viewport_region(self.canvas.page_size, self.canvas.visible_clip())
+            dialog = AdvancedExportDialog(self, self._rules, self._output_options(), docs,
+                                          viewport=region_available, theme=self._theme)
         except DrawingError as exc:
-            QMessageBox.warning(self,'출력 설정 오류',str(exc));return
-        if not dialog.exec():return
+            QMessageBox.warning(self, '출력 설정 오류', str(exc))
+            return
+        self._advanced_dialog = dialog
+        dialog.regionPickRequested.connect(lambda: self._begin_region_selection(dialog, docs))
+        dialog.finished.connect(lambda result: self._finish_advanced_dialog(dialog, docs, result))
+        # Non-blocking dialog is intentional: it can be hidden while the user
+        # draws on the main canvas, then re-opened with the identical settings.
+        dialog.open()
+
+    def _begin_region_selection(self, dialog, docs):
+        if dialog is not self._advanced_dialog or self._region_pick_dialog is not None:
+            return
+        doc = self.current_doc()
+        if (doc not in docs or doc.kind != 'pdf' or any(d.kind != 'pdf' for d in docs)
+                or self._preview_busy or self._preview_pending
+                or self._preview_displayed_seq != self._preview_seq
+                or self.canvas._base is None):
+            QMessageBox.information(dialog, '영역 선택 불가',
+                '현재 PDF 한 개의 미리보기가 완성된 상태에서만 드래그 지정할 수 있습니다.')
+            return
+        self._region_pick_snapshot = (doc, doc.page_index, doc.source_signature,
+                                      doc.states(), self._preview_seq)
+        self._region_pick_dialog = dialog
+        self._region_pick_previous_status = self.view_status.text()
+        dialog.hide()
+        if not self.canvas.begin_region_pick():
+            self._restore_region_dialog(cancelled=True)
+            return
+        self.view_status.setText('영역 선택: PDF 위에서 왼쪽 버튼으로 드래그 · Esc / 오른쪽 클릭 취소')
+        self.statusBar().showMessage('영역 선택: 사각형을 드래그하세요. Esc 또는 오른쪽 클릭으로 취소')
+
+    def _region_snapshot_current(self):
+        snapshot = self._region_pick_snapshot
+        if snapshot is None:
+            return False
+        doc, page, signature, states, seq = snapshot
+        return (self.current_doc() is doc and doc.page_index == page
+                and doc.source_signature == signature and doc.states() == states
+                and self._preview_seq == seq and not self._preview_busy
+                and not self._preview_pending and self.canvas._base is not None)
+
+    def _on_region_picked(self, region):
+        dialog = self._region_pick_dialog
+        if dialog is None:
+            return
+        valid = self._region_snapshot_current()
+        self._restore_region_dialog(cancelled=not valid)
+        if not valid:
+            QMessageBox.warning(dialog, '영역 선택 취소',
+                '영역 지정 중 원본 도면·페이지·레이어 또는 미리보기가 변경됐습니다. 다시 지정하세요.')
+            return
+        try:
+            dialog.set_drag_region(region)
+        except DrawingError as exc:
+            QMessageBox.warning(dialog, '영역 선택 오류', str(exc))
+
+    def _on_region_pick_cancelled(self):
+        if self._region_pick_dialog is not None:
+            self._restore_region_dialog(cancelled=True)
+
+    def _restore_region_dialog(self, *, cancelled):
+        dialog = self._region_pick_dialog
+        self._region_pick_dialog = None
+        self._region_pick_snapshot = None
+        previous = self._region_pick_previous_status
+        self._region_pick_previous_status = None
+        if previous is not None:
+            self.view_status.setText(previous)
+        if dialog is None or dialog is not self._advanced_dialog or self._closing:
+            return
+        dialog.apply_theme(self._theme)
+        dialog.open()
+        dialog.raise_()
+        dialog.activateWindow()
+        self.statusBar().showMessage('영역 선택 취소' if cancelled else '영역 지정 완료', 5000)
+
+    def _finish_advanced_dialog(self, dialog, docs, result):
+        # A temporary hide used for canvas selection must not trigger an export.
+        if dialog is self._region_pick_dialog:
+            return
+        if dialog is not self._advanced_dialog:
+            return
+        self._advanced_dialog = None
+        self._region_pick_snapshot = None
+        self._region_pick_previous_status = None
+        self.canvas.clear_region_overlay()
+        if result != QDialog.DialogCode.Accepted or self._closing:
+            dialog.deleteLater()
+            return
+        self._execute_advanced_export(dialog, docs)
+        dialog.deleteLater()
+
+    def _execute_advanced_export(self, dialog, docs):
         params=dialog.parameters()
         directory = self._request_output_directory()
         if directory is None:return
         try:
             opts=dialog.options()
-            # Keep page extent for group/individual extraction; original export
-            # continues to honor the user's crop setting without changes.
-            if params['mode']!='current':opts=replace(opts,crop_margins=False)
+            # Respect the confirmed dialog options: PNG group/individual exports
+            # may trim each result independently, exactly like ordinary PNG.
             jobs=plan_advanced_exports(docs,directory,opts,**params)
         except (DrawingError,OSError,ValueError) as exc:
-            QMessageBox.warning(self,'조합 추출 준비 오류',str(exc));return
-        answer=QMessageBox.question(self,'조합 추출 확인',
+            export_message_box(self,'조합 추출 준비 오류',str(exc),theme=self._theme).exec();return
+        answer=export_message_box(self,'조합 추출 확인',
             f'{len(docs)}개 도면에서 {len(jobs)}개 {opts.fmt.upper()} 출력 작업을 실행합니다.\n'
-            +('분리 모드는 흰 여백 제거를 적용하지 않으며, PDF 비레이어 내용은 남을 수 있습니다.\n' if params['mode']!='current' else '')
+            +(f'실제 적용: {opts.fmt.upper()} · 투명 배경 {"켜짐" if opts.background == "transparent" else "꺼짐"} · 흰 여백 제거 {"켜짐" if opts.crop_margins else "꺼짐"}\n' if opts.fmt in ('png','jpg') else '')
+            +('주의: 분리 출력마다 개별 여백을 잘라 결과 이미지의 크기·상대 정렬이 달라질 수 있습니다.\n' if params['mode']!='current' and opts.crop_margins else '')
+            +('PDF 비레이어 내용은 분리 출력에서도 남을 수 있습니다.\n' if params['mode']!='current' and any(d.kind=='pdf' for d in docs) else '')
             +('주의: PDF는 숨김 레이어 등 원본 데이터가 남습니다. 보안 삭제용이 아닙니다.\n' if opts.fmt=='pdf' else '')
             +('SVG는 시각적 변환이며 원본 래스터와 문자 경로가 포함될 수 있습니다.\n' if opts.fmt=='svg' else '')
             +('DXF는 지원 객체의 모델 공간 복사입니다. 정적 블록의 모든 참조 레이어를 선택해야 하며 원본 프로젝트/CRS를 보존하지 않습니다.\n' if opts.fmt=='dxf' else '')
-            +('PDF 지정 영역: '+str(tuple(round(v*100,4) for v in opts.region))+'% · 자동 여백 제거 미적용\n' if opts.region else '')
+            +('PDF 지정 영역: '+str(tuple(round(v*100,4) for v in opts.region))+'% · 선택 영역 밖 제외(자동 여백 제거와 별개) · 자동 여백 제거 미적용\n' if opts.region else '')
             +f'저장 폴더: {directory.resolve()}\n원본과 현재 레이어 상태는 수정하지 않습니다. 계속할까요?',
-            QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No,QMessageBox.StandardButton.No)
+            theme=self._theme,ask=True).exec()
         if answer==QMessageBox.StandardButton.Yes:self._start_export_jobs(jobs,opts,directory)
 
     def export_selected(self):
@@ -2582,6 +2803,12 @@ class DrawingWindow(QMainWindow):
         self._close_prompted=True
 
     def closeEvent(self,event):
+        if self._region_pick_dialog is not None:
+            dialog = self._region_pick_dialog
+            self._region_pick_dialog = None
+            self._region_pick_snapshot = None
+            self.canvas.cancel_region_pick()
+            dialog.reject()
         self.preview_timer.stop();self.detail_timer.stop()
         if self._folder_cancel is not None:
             self._folder_cancel.set()

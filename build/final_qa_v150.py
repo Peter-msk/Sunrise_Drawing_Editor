@@ -1,4 +1,4 @@
-"""Windows-only v1.5 final QA: four native Qt tests + one LEAN build.
+"""Windows-only v1.5 final QA: nine native Qt tests + one LEAN build.
 
 A local self-signed build remains INTERNAL_QA_ONLY. This command does not
 activate a release, upload binaries, or change the installed update feed.
@@ -24,14 +24,18 @@ def _digest(path):
 
 
 def native_qt_tests():
-    # A unittest skip is not a PASS; enforce all four expected actual Qt tests.
+    # A unittest skip is not a PASS; enforce all nine actual widget, drag and raster settings tests.
     os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-    suite = unittest.defaultTestLoader.loadTestsFromName('build.test_v140_r06.QtInteractionTests')
+    suite = unittest.TestSuite([
+        unittest.defaultTestLoader.loadTestsFromName('build.test_v140_r06.QtInteractionTests'),
+        unittest.defaultTestLoader.loadTestsFromName('build.test_v150_drag_region.QtDragTests'),
+        unittest.defaultTestLoader.loadTestsFromName('build.test_v150_combo_options.CombinationRasterQtTests'),
+    ])
     output = io.StringIO()
     result = unittest.TextTestRunner(stream=output, verbosity=2).run(suite)
     print(output.getvalue())
-    if result.testsRun != 4 or result.skipped or result.errors or result.failures:
-        raise RuntimeError('Qt 실기 테스트 4개가 모두 실행·통과해야 합니다.')
+    if result.testsRun != 9 or result.skipped or result.errors or result.failures:
+        raise RuntimeError('Qt 실기 테스트 9개(드래그·팝업 다크 테마·조합 PNG 옵션 포함)가 모두 실행·통과해야 합니다.')
     return True
 
 
@@ -56,7 +60,7 @@ def postbuild():
     status = 'INTERNAL_QA_ONLY' if trust != 'TRUSTED_BY_WINDOWS_POLICY' else 'AUTOMATED_PASS_MANUAL_PENDING'
     report = {'version': APP_VERSION, 'exe': exe.name, 'sha256': sha,
               'status': status, 'signature_trust': trust,
-              'windows_qt_widget_tests': 4, 'packaged_exe_qa': 'PASS',
+              'windows_qt_widget_tests': 9, 'packaged_exe_qa': 'PASS',
               'manual_remaining': ['actual_user_onmap', 'actual_dwg_converter', 'dpi_visual',
                                    'real_world_memory', 'previous_to_candidate_update_rollback']}
     destination = exe.parent / 'V150_LOCAL_QA.json'
@@ -68,7 +72,7 @@ def postbuild():
 def main():
     arg = argparse.ArgumentParser(description=__doc__)
     arg.add_argument('--all', action='store_true', help='Run Qt tests, one LEAN build, signed EXE QA')
-    arg.add_argument('--qt-only', action='store_true', help='Run exactly four real Qt tests')
+    arg.add_argument('--qt-only', action='store_true', help='Run nine real Qt tests (including region drag)')
     arg.add_argument('--postbuild', action='store_true', help='Verify an existing dist EXE')
     args = arg.parse_args()
     if os.name != 'nt':

@@ -11,8 +11,8 @@
   "authenticode_required": true,
   "release_url": "https://github.com/Peter-msk/Sunrise_Drawing_Editor/releases/tag/v1.5.0",
   "download_url": "https://github.com/Peter-msk/Sunrise_Drawing_Editor/releases/download/v1.5.0/Sunrise.Drawing.Editor.exe",
-  "sha256": "839f498eb26756d2d8ed688b374e7c1f085e11589a5368a66a47638d1ab85c4f",
-  "file_size_bytes": 73002472,
+  "sha256": null,
+  "file_size_bytes": null,
   "publisher": "Sunrise Group",
   "automatic_update_available": false,
   "update_mode": "user_approved_self_replace",
@@ -23,6 +23,6 @@
   "source_url": "https://github.com/Peter-msk/Sunrise_Drawing_Editor",
   "download_file_name": "Sunrise.Drawing.Editor.exe",
   "notice_url": "https://raw.githubusercontent.com/Peter-msk/Sunrise_Drawing_Editor/main/notice.txt",
-  "signature_policy": "GROUP_SIGNED_AT_BUILD_FEED_SHA256",
-  "signature_trust": "SELF_SIGNED_UNTRUSTED_TEST_ONLY"
+  "signature_policy": "INTERNAL_SELF_SIGNED_QA_OFFICIAL_TRUSTED_CA_REQUIRED",
+  "signature_trust": "NOT_BUILT"
 }

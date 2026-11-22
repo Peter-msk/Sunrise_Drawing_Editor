@@ -46,8 +46,6 @@ def checked_profile(data):
         opts = OutputOptions(**data['options']).checked()
         if data['mode'] not in ('current','layers','groups','rules') or data['scope'] not in ('current','all','range'):
             raise ValueError('추출 방식/페이지 범위 오류')
-        if opts.crop_margins and data['mode'] != 'current':
-            raise ValueError('레이어 분리 추출에는 자동 여백 제거를 적용할 수 없습니다.')
         if not isinstance(data['page_range'], str) or len(data['page_range']) > 24:
             raise ValueError('페이지 범위 오류')
         if data['scope'] == 'range':
