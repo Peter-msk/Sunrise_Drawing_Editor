@@ -18,7 +18,7 @@ RUN_V150_FINAL_QA.cmd
 ## 2. 자동 QA 증거
 
 - [ ] CMD 종료 코드 0, Qt 위젯 10/10 PASS (SKIP 불허)
-- [ ] `dist\Sunrise Drawing Editor.exe` 실제 실행 및 버전 1.5.8 확인
+- [ ] `dist\Sunrise Drawing Editor.exe` 실제 실행 및 버전 1.6.0 확인
 - [ ] `dist\SHA256.txt`, `SIGNATURE_STATUS.json`, `SMOKE_STATUS.json`, `FUNCTIONAL_QA.json`, `V150_LOCAL_QA.json` 모두 같은 EXE 해시로 대조
 - [ ] `V150_LOCAL_QA.json` 상태 `GROUP_INTERNAL_CANDIDATE_MANUAL_PENDING`, 그룹 인증서 지문 확인, `windows_qt_widget_status=PASS`
 - [ ] `FUNCTIONAL_QA.json`의 `checks_passed`에 `png_alpha_crop_independent_pixel_exact` 포함 (네 가지 PNG 옵션 조합, 실제 EXE 실행으로 확인)
