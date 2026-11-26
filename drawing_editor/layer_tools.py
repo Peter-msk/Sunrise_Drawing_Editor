@@ -18,6 +18,7 @@ GROUPS = {
     '경계': ('boundary', 'border', 'parcel', '경계', '지적', '사업지구'),
     '문자': ('text', 'label', 'anno', 'annotation', '문자', '주기', '주석'),
     '식생': ('vegetation', 'forest', 'tree', '식생', '산림', '수목'),
+    '워터마크': ('워터마크', 'watermark'),
 }
 _TOKEN_GROUP = {word: group for group, words in GROUPS.items() for word in words}
 _TOKEN_PATTERN = re.compile(r'[^\W_]+')

@@ -37,7 +37,9 @@ def clamp_zoom_factor(current_scale: float, fit_scale: float, requested: float) 
     The lower bound of 5% keeps navigation usable; the upper bound permits
     inspection of tiny linework. Both are independent of original PDF units.
     """
-    if current_scale <= 0 or fit_scale <= 0 or requested <= 0:
+    from math import isfinite
+    if (not all(isfinite(v) for v in (current_scale, fit_scale, requested))
+            or min(current_scale, fit_scale, requested) <= 0):
         return 1.0
     lower, upper = fit_scale * 0.05, fit_scale * 128.0
     # If fitInView or a previous desktop size left the view outside the new
@@ -45,9 +47,9 @@ def clamp_zoom_factor(current_scale: float, fit_scale: float, requested: float) 
     if current_scale >= upper:
         # Resizing the window can move an already zoomed view beyond the new
         # limit. Allow smooth inward motion, never snap back in one wheel tick.
-        return 1.0 if requested > 1 else requested
+        return 1.0 if requested > 1 else max(lower / current_scale, requested)
     if current_scale <= lower:
-        return 1.0 if requested < 1 else requested
+        return 1.0 if requested < 1 else min(upper / current_scale, requested)
     target = max(lower, min(upper, current_scale * requested))
     return target / current_scale
 
@@ -71,10 +73,15 @@ def detail_tile_covers(visible: tuple[float, float, float, float] | None,
 
     Work in page coordinates. Avoid accepting a low-resolution tile after zoom.
     """
-    if visible is None or tile is None or tile_density <= 0 or requested_density <= 0:
+    from math import isfinite
+    if (visible is None or tile is None or len(visible) != 4 or len(tile) != 4
+            or not all(isfinite(v) for v in (*visible, *tile, tile_density, requested_density))
+            or tile_density <= 0 or requested_density <= 0):
         return False
     x0, y0, x1, y1 = visible
     a0, b0, a1, b1 = tile
+    if x1 <= x0 or y1 <= y0 or a1 <= a0 or b1 <= b0:
+        return False
     epsilon = 0.01  # floating-point viewport conversion tolerance in PDF points
     return (a0 <= x0 + epsilon and b0 <= y0 + epsilon and
             a1 + epsilon >= x1 and b1 + epsilon >= y1 and

@@ -15,7 +15,7 @@ if str(ROOT) not in sys.path:
 from drawing_editor.release_feed import (APP_VERSION, APP_ID, ASSET_NAME, RELEASES,
     _NoRedirect, release_download_urls, parse_release, version_tuple)
 from drawing_editor.onefile_update import digest, _independent_env
-from build.sign_release import embedded_signer_certificates, is_code_signing
+from build.sign_release import embedded_signer_certificates, is_code_signing, find_signtool
 from cryptography.hazmat.primitives import hashes
 from build.pe_version import read_version_resource, verify_version_resource
 from build.functional_gate import read_functional_qa
@@ -35,12 +35,14 @@ def release_record(version):
 
 
 def approved_metadata(data, release, *, version, old_version, sha, size, signature_trust):
+    if (data.get('signature_policy') == 'GROUP_PINNED_INTERNAL_QA_PUBLIC_FEED_DISABLED'
+            or data.get('group_certificate_pin_verified') is True):
+        raise ValueError('Internal group build cannot activate the public update feed.')
     # Preserve the actual build report; never relabel a self-signed EXE as trusted.
-    # Restore the v1.1.0 R03 group-signed approval contract. Public CA trust is
-    # not a requirement for the product-owned HTTPS + pinned SHA-256 updater.
-    # Actual trust status and signer evidence remain mandatory and unaltered.
     if signature_trust not in ('SELF_SIGNED_UNTRUSTED_TEST_ONLY', 'TRUSTED_BY_WINDOWS_POLICY'):
         raise ValueError('Missing supported build signature status')
+    if version_tuple(version) >= (1, 5, 0) and signature_trust != 'TRUSTED_BY_WINDOWS_POLICY':
+        raise ValueError('v1.5.0 정식 배포는 Windows 신뢰 서명을 요구합니다. 자체 서명은 내부 QA 전용입니다.')
     if version_tuple(old_version) >= version_tuple(version):
         raise ValueError('Previous version must be lower than target version')
     if (data.get('app_id') != APP_ID or data.get('latest_version') != version
@@ -99,6 +101,17 @@ def approve(old, new, metadata, output):
             raise ValueError('Unsupported build signature evidence')
         if exe == new:
             new_trust = signature_trust
+    if version_tuple(APP_VERSION) >= (1, 5, 0):
+        if new_trust != 'TRUSTED_BY_WINDOWS_POLICY':
+            raise ValueError('Public release requires a Windows-trusted code signing chain')
+        signing_certs = [cert for cert in embedded_signer_certificates(new) if is_code_signing(cert)]
+        if len(signing_certs) != 1 or signing_certs[0].subject == signing_certs[0].issuer:
+            raise ValueError('Self-signed or ambiguous signing leaf is not approved for official release')
+        verified = subprocess.run([str(find_signtool()), 'verify', '/pa', '/v', str(new)],
+                                  stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                  stderr=subprocess.STDOUT, text=True, errors='replace', timeout=30)
+        if verified.returncode:
+            raise ValueError('Windows policy Authenticode verification failed for official release')
     for exe, version, fingerprint in ((old, old_version, old_sha), (new, APP_VERSION, sha)):
         read_functional_qa(exe.parent / 'FUNCTIONAL_QA.json', fingerprint, version=version, extraction_only=(exe == new))
         verify_candidate_version(exe, version, _independent_env())

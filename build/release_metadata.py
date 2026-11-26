@@ -33,7 +33,9 @@ def build_metadata(exe, sha256, signature, *, root=ROOT):
                 notice_url=f'https://raw.githubusercontent.com/Peter-msk/Sunrise_Drawing_Editor/main/notice.txt',
                 publisher='Sunrise Group', authenticode_required=True,
                 signature_trust=signature.get('trust', 'UNKNOWN'),
-                signature_policy='GROUP_SIGNED_AT_BUILD_FEED_SHA256',
+                signature_policy=live.get('signature_policy') if live.get('signature_policy') == 'GROUP_PINNED_INTERNAL_QA_PUBLIC_FEED_DISABLED' else 'GROUP_SIGNED_AT_BUILD_FEED_SHA256',
+                group_certificate_pin_verified=signature.get('group_certificate_pin_verified') is True,
+                group_certificate_sha256=signature.get('certificate_thumbprint_sha256') if signature.get('group_certificate_pin_verified') is True else None,
                 official_release=False, update_endpoint_configured=False,
                 automatic_update_available=False,
                 release_notes=live.get('release_notes', ''))
@@ -41,17 +43,20 @@ def build_metadata(exe, sha256, signature, *, root=ROOT):
             'notice.txt': (notice + '\n').encode('utf-8')}
 
 
-def publish_bundle(exe, destination, sha256, signature, digest, *, functional_qa, root=ROOT):
+def publish_bundle(exe, destination, sha256, signature, digest, *, functional_qa, smoke, root=ROOT):
     """Prepare every output first; replace EXE last, roll back sidecars on error."""
     import os
     import shutil
     import tempfile
 
+    if smoke.get('sha256') != sha256 or smoke.get('passed') is not True:
+        raise ValueError('Smoke evidence does not match the signed EXE')
     files = {'release-metadata/' + name: value for name, value in
              build_metadata(exe, sha256, signature, root=root).items()}
     files['SHA256.txt'] = f'{sha256}  {exe.name}\n'.encode('utf-8')
     files['SIGNATURE_STATUS.json'] = (json.dumps(dict(signature, windows_exe_smoke_pass=True),
                                                 indent=2, ensure_ascii=True) + '\n').encode('ascii')
+    files['SMOKE_STATUS.json'] = (json.dumps(smoke, indent=2, ensure_ascii=False) + '\n').encode('utf-8')
     files['FUNCTIONAL_QA.json'] = (json.dumps(functional_qa, indent=2, ensure_ascii=False) + '\n').encode('utf-8')
     destination.mkdir(parents=True, exist_ok=True)
     (destination / 'release-metadata').mkdir(exist_ok=True)
@@ -70,8 +75,17 @@ def publish_bundle(exe, destination, sha256, signature, digest, *, functional_qa
                 backup = work / 'old' / name
                 backup.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(old, backup)
+        # A previous final QA belongs to the previous EXE, not the new candidate.
+        # Move it into the same transaction before replacing any sidecar.
+        final_qa_name = 'V150_LOCAL_QA.json'
+        final_qa = destination / final_qa_name
         replaced = []
         try:
+            if final_qa.exists():
+                backup = work / 'old' / final_qa_name
+                backup.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(final_qa, backup)
+                replaced.append(final_qa_name)
             for name in files:
                 os.replace(work / 'new' / name, destination / name)
                 replaced.append(name)

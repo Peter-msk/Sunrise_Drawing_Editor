@@ -16,6 +16,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import re
 import shutil
 import ssl
 import struct
@@ -196,12 +197,41 @@ def embedded_signer_certificates(executable: Path) -> list[x509.Certificate]:
     return certs
 
 
+def group_pin():
+    """An operator-provisioned SHA-256 certificate fingerprint, never a trust anchor from the EXE."""
+    pin = os.environ.get('SUNRISE_GROUP_CERT_SHA256', '').strip().upper()
+    if pin and not re.fullmatch(r'[0-9A-F]{64}', pin):
+        raise SignError('SUNRISE_GROUP_CERT_SHA256 must be a 64-digit certificate fingerprint.')
+    return pin
+
+
+def select_store_signer(existing, pin):
+    if not pin:
+        return existing[0] if existing else make_cert_in_user_store()
+    matches = [cert for cert in existing if cert.fingerprint(hashes.SHA256()).hex().upper() == pin]
+    if len(matches) != 1:
+        raise SignError('Configured Sunrise Group certificate not found uniquely in My store; no fallback certificate.')
+    return matches[0]
+
+
+def require_group_signature(exe, report, pin):
+    """Internal candidate only: require independently configured pin and native policy verification."""
+    if not pin or report.get('certificate_thumbprint_sha256') != pin or report.get('subject') != 'CN=Sunrise Group':
+        raise SignError('Group signing certificate pin does not match build evidence.')
+    certs = [c for c in embedded_signer_certificates(exe) if is_code_signing(c)]
+    if len(certs) != 1 or certs[0].fingerprint(hashes.SHA256()).hex().upper() != pin or not cert_current(certs[0]):
+        raise SignError('Embedded group certificate is missing, ambiguous, expired or mismatched.')
+    call([str(find_signtool()), 'verify', '/pa', '/all', '/v', str(exe.resolve())])
+    return True
+
+
 def sign_and_verify(exe: Path) -> dict:
     if os.name != 'nt':
         raise SignError('Signing requires Windows CMD with Windows SDK SignTool.')
     if not exe.is_file():
         raise SignError(f'EXE not found: {exe}')
     signtool = find_signtool()
+    pin = group_pin()
     pfx_path = os.environ.get('SUNRISE_SIGN_PFX_PATH', '').strip('"')
     timestamp_url = os.environ.get('SUNRISE_TIMESTAMP_URL', '').strip()
     if pfx_path:
@@ -214,11 +244,13 @@ def sign_and_verify(exe: Path) -> dict:
         mode = 'EXTERNAL_PFX'
     else:
         existing = store_certificates()
-        cert = existing[0] if existing else make_cert_in_user_store()
+        cert = select_store_signer(existing, pin)
         sign_args = [str(signtool), 'sign', '/fd', 'SHA256', '/s', 'My', '/sha1',
                      cert.fingerprint(hashes.SHA1()).hex().upper(),
                      '/d', 'Sunrise Drawing Editor']
         mode = 'WINDOWS_USER_CERT_STORE'
+    if pin and cert.fingerprint(hashes.SHA256()).hex().upper() != pin:
+        raise SignError('External or store certificate does not match configured group fingerprint.')
     if timestamp_url:
         sign_args.extend(['/tr', timestamp_url, '/td', 'SHA256'])
     sign_args.append(str(exe.resolve()))
@@ -256,6 +288,7 @@ def sign_and_verify(exe: Path) -> dict:
         'sha256': hashlib.sha256(exe.read_bytes()).hexdigest(),
         'subject': 'CN=Sunrise Group',
         'certificate_thumbprint_sha1': cert.fingerprint(hashes.SHA1()).hex().upper(),
+        'certificate_thumbprint_sha256': cert.fingerprint(hashes.SHA256()).hex().upper(),
         'mode': mode,
         'trust': trust,
         'timestamp_configured': bool(timestamp_url),
@@ -263,6 +296,9 @@ def sign_and_verify(exe: Path) -> dict:
         'embedded_certificate_match': True,
         'windows_exe_smoke_pass': False,
     }
+    if pin:
+        require_group_signature(exe, result, pin)
+    result['group_certificate_pin_verified'] = bool(pin)
     (exe.parent / 'SIGNATURE_STATUS.json').write_text(
         json.dumps(result, indent=2, ensure_ascii=True) + '\n', encoding='ascii')
     print(f'[PASS] Embedded Authenticode signer: CN=Sunrise Group; trust={trust}')

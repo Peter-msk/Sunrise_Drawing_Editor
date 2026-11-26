@@ -24,6 +24,7 @@ from .trim import (find_content_crop, image_ink_bbox,
 from .cad_spatial import CADGridIndex
 from .cad_selective import VisibleDXFSource, SelectiveDXFUnsupported, SelectiveDXFCancelled
 from .cad_render_fast import FastPyMuPdfBackend
+from .ngii_watermark import separate_watermark
 
 
 class DrawingError(Exception):
@@ -388,6 +389,7 @@ class DrawingDocument:
         self._pdf = fitz.open(str(self.path))
         if not self._pdf.is_pdf or self._pdf.needs_pass or self._pdf.page_count < 1:
             raise DrawingError("읽을 수 없는 PDF이거나 암호로 보호되어 있습니다.")
+        separate_watermark(self._pdf)
         raw = self._pdf.get_ocgs() or {}
         self._states = {int(key): bool(value.get("on", True)) for key, value in raw.items()}
         self._names = {int(key): str(value.get("name") or f"레이어 {key}") for key, value in raw.items()}
@@ -1033,6 +1035,9 @@ class DrawingDocument:
                 self._preview_display_failed_key = key
         return self._preview_display_list
 
+    def _preview_key(self, preview, clip=None, background='opaque'):
+        return (self.page_index, tuple(self._states.items()), preview, clip, background)
+
     def _remember_preview(self, cache_key: tuple | None, data: bytes) -> None:
         if cache_key is None or len(data) > 6_000_000:
             return
@@ -1042,19 +1047,20 @@ class DrawingDocument:
         self._preview_cache[cache_key] = data
         self._preview_cache_bytes += len(data)
         while len(self._preview_cache) > 6 or self._preview_cache_bytes > 18_000_000:
-            _, older = self._preview_cache.popitem(last=False)
+            evicted, older = self._preview_cache.popitem(last=False)
             self._preview_cache_bytes -= len(older)
+            self._preview_geometry_cache.pop(evicted, None)
 
     def render_bytes(self, options: OutputOptions | None = None,
                      preview: tuple[int, int] | None = None,
                      clip: tuple[float,float,float,float] | None = None) -> bytes:
+        self._check_preview_cancel()
         opts = (options or OutputOptions()).checked()
         if opts.fmt not in ("png", "jpg"):
             raise DrawingError("벡터 출력은 독립 출력 작업을 사용하세요.")
         cache_key = None
         if preview is not None and opts.fmt == 'png':
-            cache_key = (self.page_index, tuple(self._states.items()), preview, clip,
-                         opts.background)
+            cache_key = self._preview_key(preview, clip, opts.background)
             if cache_key in self._preview_cache:
                 data = self._preview_cache[cache_key]
                 self._preview_cache.move_to_end(cache_key)
@@ -1102,6 +1108,8 @@ class DrawingDocument:
                     data = (_render_page(page, opts.fmt, preview, clip, transparent=True)
                             if transparent else _render_page(page, opts.fmt, preview, clip))
             self._remember_preview(cache_key, data)
+            if cache_key in self._preview_cache and clip is None:
+                self._preview_geometry_cache[cache_key] = (page.rect.width, page.rect.height)
             return data
         except DrawingError:
             raise
@@ -1374,13 +1382,19 @@ def _thread_document(path: str) -> DrawingDocument:
 def _validate_snapshot(doc, states, page_index, expected_source):
     if type(page_index) is not int or not 0 <= page_index < doc.pages:
         raise DrawingError('페이지 범위가 변경되었거나 유효하지 않습니다.')
-    if not isinstance(states, dict) or any(type(flag) is not bool for flag in states.values()):
-        raise DrawingError('레이어 상태는 참/거짓이어야 합니다.')
-    if expected_source is not None:
-        verify_source(doc.path, expected_source)
-        if doc._states.keys() != states.keys() or any(
-                states[key] != doc._states[key] for key in doc._locked):
-            raise DrawingError('원본 레이어 정보가 변경되었습니다. 다시 불러오세요.')
+    key_type = int if doc.kind == 'pdf' else str
+    if (not isinstance(states, dict) or
+            any(type(key) is not key_type for key in states) or
+            any(type(flag) is not bool for flag in states.values())):
+        raise DrawingError('레이어 키 또는 참/거짓 상태가 유효하지 않습니다.')
+    # A full snapshot is mandatory even for callers without a registration
+    # stamp. Partial updates belong to the UI model, not a render request.
+    verify_source(doc.path, expected_source)
+    if expected_source is not None and doc.source_signature != expected_source:
+        raise DrawingError('원본 도면이 변경되었습니다. 도면을 다시 불러오세요.')
+    if doc._states.keys() != states.keys() or any(
+            states[key] != doc._original[key] for key in doc._locked):
+        raise DrawingError('원본 레이어 정보가 변경되었습니다. 다시 불러오세요.')
 
 
 def render_snapshot(path: str, states: dict[int | str, bool], page_index: int,
@@ -1389,17 +1403,18 @@ def render_snapshot(path: str, states: dict[int | str, bool], page_index: int,
                     *, cancelled=None, expected_source=None) -> bytes:
     if cancelled and cancelled():
         raise RenderCancelled('미리보기 중단됨')
-    verify_source(path, expected_source)
+    guard = expected_source if expected_source is not None else source_signature(path)
+    verify_source(path, guard)
     doc = _thread_document(path)
     doc._preview_cancelled = cancelled
     try:
         doc._check_preview_cancel()
-        _validate_snapshot(doc, states, page_index, expected_source)
+        _validate_snapshot(doc, states, page_index, guard)
         doc.apply_snapshot(states)
         doc.page_index = page_index
         result = doc.render_bytes(OutputOptions('png'), preview=preview_size, clip=clip)
         doc._check_preview_cancel()
-        verify_source(path, expected_source)
+        verify_source(path, guard)
         return result
     except Exception:
         close_thread_document()
@@ -1433,7 +1448,7 @@ def export_snapshot(path: str, states: dict[int | str, bool], page_index: int,
         doc = _thread_document(path)
         doc._preview_cancelled = cancelled
         checkpoint()
-        _validate_snapshot(doc, states, page_index, expected_source)
+        _validate_snapshot(doc, states, page_index, guard)
         doc.apply_snapshot(states)
         doc.page_index = page_index
         checkpoint()
@@ -1457,14 +1472,15 @@ def preview_snapshot(path: str, states: dict[int | str,bool], page_index: int,
     """Fetch preview + page geometry from the SAME document/render context."""
     if cancelled and cancelled():
         raise RenderCancelled('미리보기 중단됨')
-    verify_source(path, expected_source)
+    guard = expected_source if expected_source is not None else source_signature(path)
+    verify_source(path, guard)
     doc = _thread_document(path)
     doc._preview_cancelled = cancelled
     try:
-        _validate_snapshot(doc, states, page_index, expected_source)
+        _validate_snapshot(doc, states, page_index, guard)
         result = _preview_snapshot_active(doc, states, page_index, preview_size)
         doc._check_preview_cancel()
-        verify_source(path, expected_source)
+        verify_source(path, guard)
         return result
     except Exception:
         close_thread_document()
@@ -1477,7 +1493,7 @@ def _preview_snapshot_active(doc, states, page_index, preview_size):
     doc._check_preview_cancel()
     doc.apply_snapshot(states)
     doc.page_index = page_index
-    cache_key = (page_index, tuple(doc._states.items()), preview_size, None)
+    cache_key = doc._preview_key(preview_size)
     # Repeated overview requests need neither the CAD/PDF intermediate page
     # construction nor a second rasterization. Geometry is cached alongside
     # the pixels; source changes instantiate a new thread document.
@@ -1502,8 +1518,6 @@ def _preview_snapshot_active(doc, states, page_index, preview_size):
         if cache_key in doc._preview_cache:
             doc._preview_geometry_cache[cache_key] = geometry
             doc._preview_geometry_cache.move_to_end(cache_key)
-            while len(doc._preview_geometry_cache) > 8:
-                doc._preview_geometry_cache.popitem(last=False)
         doc._check_preview_cancel()
         return data, geometry
     finally:

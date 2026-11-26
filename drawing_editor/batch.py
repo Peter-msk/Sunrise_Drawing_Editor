@@ -209,6 +209,26 @@ class BatchResult:
     completed: tuple[str, ...]
     errors: tuple[tuple[str, str], ...]
     cancelled: bool
+    worker_error: str = ""
+
+
+def checked_output_parent(target) -> Path:
+    """Reject changed or noncanonical planned output directories."""
+    parent = Path(target).parent
+    if (not parent.is_absolute() or not parent.is_dir()
+            or parent.resolve(strict=True) != parent
+            or getattr(parent.lstat(), "st_file_attributes", 0) & 0x400):
+        raise DrawingError("출력 폴더 없음 또는 경로 변경")
+    return parent
+
+
+def confirmed_output(target) -> bool:
+    try:
+        checked_output_parent(target)
+        info = Path(target).lstat()
+        return stat.S_ISREG(info.st_mode) and not (getattr(info, "st_file_attributes", 0) & 0x400)
+    except (DrawingError, OSError, ValueError, RuntimeError):
+        return False
 
 
 def planned_source(doc):
@@ -228,6 +248,10 @@ def plan_exports(docs: Sequence[DrawingDocument], folder: str | Path,
         raise DrawingError('이미지 저장 폴더가 존재하지 않습니다.')
     if not docs:
         raise DrawingError('이미지 추출할 도면을 선택하세요.')
+    if any(not getattr(doc, 'loaded', True) for doc in docs):
+        raise DrawingError('선택한 도면의 레이어 분석을 완료하세요.')
+    if opts.region is not None and any(doc.kind != 'pdf' for doc in docs):
+        raise DrawingError('지정 영역 추출은 PDF만 지원합니다.')
     from .layer_tools import MAX_JOBS, MAX_STATE_ENTRIES
     if len(docs) > MAX_JOBS:
         raise DrawingError('한 번에 최대 1,000개 출력 작업을 지원합니다.')
@@ -292,7 +316,7 @@ def plan_exports(docs: Sequence[DrawingDocument], folder: str | Path,
 def run_batch_exports(jobs: Sequence[ExportJob], options: OutputOptions,
                       progress: Callable[[int, int, float, str], None] | None = None,
                       cancelled: Callable[[], bool] | None = None,
-                      render_gate=None) -> BatchResult:
+                      render_gate=None, *, outcome=None) -> BatchResult:
     """Sequential bounded-memory exports; per-file failures do not cancel others."""
     completed: list[str] = []
     errors: list[tuple[str, str]] = []
@@ -312,6 +336,7 @@ def run_batch_exports(jobs: Sequence[ExportJob], options: OutputOptions,
             try:
                 if cancelled and cancelled():
                     raise InterruptedError('이미지 추출이 취소되었습니다.')
+                checked_output_parent(job.target)
                 result = export_snapshot(
                     job.source, job.states, job.page_index, job.target, options,
                     progress=(lambda value, idx=index, name=Path(job.source).name:
@@ -328,6 +353,11 @@ def run_batch_exports(jobs: Sequence[ExportJob], options: OutputOptions,
             if cancelled and cancelled():
                 return BatchResult(tuple(completed), tuple(errors), True)
             errors.append((job.target, str(exc)))
+            if outcome is not None:
+                outcome(index, None, str(exc))
+        else:
+            if outcome is not None:
+                outcome(index, result, None)
         if progress:
             progress(index + 1, total, 0., Path(job.source).name)
     return BatchResult(tuple(completed), tuple(errors), False)

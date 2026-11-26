@@ -15,6 +15,8 @@ V140_REQUIRED = V130_REQUIRED | {'pdf_native_vector_ocg', 'svg_visible_paths', '
 
 EXTRACTION_REQUIRED = (V140_REQUIRED - {'dxf_color_override_pixels'}) | {'dxf_original_color_pixels', 'dxf_compound_native'}
 
+V158_REQUIRED = EXTRACTION_REQUIRED | {'png_alpha_crop_independent_pixel_exact'}
+
 def read_functional_qa(path: Path, sha256: str, *, version=None, extraction_only=False) -> dict:
     ver = tuple(map(int, version.split('.'))) if version is not None else (0,0,0)
     required = V140_REQUIRED if ver >= (1,4,0) else V130_REQUIRED if ver >= (1,3,0) else REQUIRED
@@ -31,6 +33,8 @@ def read_functional_qa(path: Path, sha256: str, *, version=None, extraction_only
         checks = data.get('checks_passed')
         if extraction_only or ver >= (1,5,0) or (ver >= (1,4,0) and isinstance(checks, list) and 'dxf_original_color_pixels' in checks):
             required = EXTRACTION_REQUIRED
+        if ver >= (1, 5, 8):
+            required = V158_REQUIRED
         if (not isinstance(checks, list) or not all(isinstance(s, str) for s in checks)
                 or not required.issubset(checks) or len(set(checks)) != len(checks)):
             raise ValueError('Required packaged drawing checks missing or duplicated')

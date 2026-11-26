@@ -1,5 +1,7 @@
-"""Lock the working 1.0.0 R03 -> 1.1.0 R03 updater contract.
+"""Preserve the runtime 1.0.0 R03 -> 1.1.0 R03 updater contract.
 
+Reconciled from GitHub main's historical tests for the v1.6.0 candidate:
+existing feed parsing remains compatible; new public approval is not historical feed parsing.
 Offline tests only: no network, file replacement, certificate installation or release activation.
 """
 import json
@@ -12,7 +14,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from drawing_editor.release_feed import (
-    APP_ID, ASSET_NAME, LOCAL_EXE_NAME, RELEASES,
+    APP_ID, APP_VERSION, ASSET_NAME, LOCAL_EXE_NAME, RELEASES,
     parse_release, release_download_urls, validated_download,
 )
 from drawing_editor.control import ControlDenied, Policy, ensure_update_allowed, parse_control
@@ -49,9 +51,14 @@ class LegacyUpdateContractTests(unittest.TestCase):
     def test_same_contract_for_110_to_150(self):
         for url, name in zip(release_download_urls('1.5.0'), (ASSET_NAME, LOCAL_EXE_NAME)):
             with self.subTest(url=url):
-                parsed = parse_release(_feed('1.5.0', url, name), current='1.1.0')
+                data=json.loads(_feed('1.5.0', url, name))
+                data.update(signature_trust='SELF_SIGNED_UNTRUSTED_TEST_ONLY',
+                            signature_policy='GROUP_SIGNED_AT_BUILD_FEED_SHA256')
+                parsed = parse_release(json.dumps(data), current='1.1.0')
                 self.assertEqual(parsed.sha256, SHA256)
                 self.assertEqual(parsed.size, 12345678)
+                self.assertTrue(parsed.automatic)
+                self.assertIsNone(parse_release(json.dumps(data),current=APP_VERSION))
 
     def test_unapproved_urls_and_filename_mismatch_rejected(self):
         good, _ = release_download_urls('1.5.0')
@@ -62,24 +69,27 @@ class LegacyUpdateContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_release(_feed('1.5.0', good, LOCAL_EXE_NAME), current='1.1.0')
 
-    def test_v150_approval_restores_group_signed_policy_without_disabling_hash_checks(self):
+    def test_new_public_approval_does_not_treat_historical_group_feed_as_new_authority(self):
         from build.approve_update import approved_metadata
-        url = release_download_urls('1.5.0')[0]
-        data = json.loads(_feed('1.5.0', url, ASSET_NAME))
-        release = {'tag_name': 'v1.5.0', 'draft': False, 'prerelease': False,
+        version=APP_VERSION
+        url = release_download_urls(version)[0]
+        data = json.loads(_feed(version, url, ASSET_NAME))
+        release = {'tag_name': 'v'+version, 'draft': False, 'prerelease': False,
                    'assets': [{'name': ASSET_NAME, 'state': 'uploaded',
                                'size': 12345678, 'digest': 'sha256:' + SHA256,
                                'browser_download_url': url}]}
-        active = approved_metadata(data, release, version='1.5.0', old_version='1.1.0',
-                                   sha=SHA256, size=12345678,
-                                   signature_trust='SELF_SIGNED_UNTRUSTED_TEST_ONLY')
-        self.assertEqual(active['signature_trust'], 'SELF_SIGNED_UNTRUSTED_TEST_ONLY')
-        self.assertTrue(active['automatic_update_available'])
+        # R15 distinguishes the new group-only candidate from public approval.
+        for metadata, trust in ((data,'SELF_SIGNED_UNTRUSTED_TEST_ONLY'),
+                                (dict(data,signature_policy='GROUP_PINNED_INTERNAL_QA_PUBLIC_FEED_DISABLED'),
+                                 'TRUSTED_BY_WINDOWS_POLICY')):
+            with self.subTest(trust=trust),self.assertRaises(ValueError):
+                approved_metadata(metadata, release, version=version, old_version='1.5.0',
+                                  sha=SHA256, size=12345678, signature_trust=trust)
         release['assets'][0]['size'] = 12345679
         with self.assertRaises(ValueError):
-            approved_metadata(data, release, version='1.5.0', old_version='1.1.0',
+            approved_metadata(data, release, version=version, old_version='1.5.0',
                               sha=SHA256, size=12345678,
-                              signature_trust='SELF_SIGNED_UNTRUSTED_TEST_ONLY')
+                              signature_trust='TRUSTED_BY_WINDOWS_POLICY')
 
     def test_product_update_block_keeps_execution_allowed(self):
         policy = parse_control('''[global]\nschema_version=1\ndefault_operation=allow\ndefault_update=allow\n\n[product.sunrise_drawing_editor]\noperation=allow\nupdate=block\nminimum_version=\nmessage=검증 중 업데이트 차단\n''')
