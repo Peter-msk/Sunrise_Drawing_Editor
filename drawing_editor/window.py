@@ -2019,8 +2019,9 @@ class DrawingWindow(QMainWindow):
             self.page_info.setText('오류' if doc.catalog_error else '읽는 중')
             self._preview_seq += 1
             self._detail_seq += 1
-            self._update_layer_summary()
-            self._sync_actions()
+            # The search text was cleared with signals blocked; explicitly
+            # reset the search result controls even while cataloging a drawing.
+            self._filter_layers()
             return
         self._layer_change_guard=True
         self.layer_list.setUpdatesEnabled(False)
@@ -2652,14 +2653,17 @@ class DrawingWindow(QMainWindow):
             self._restore_export_ui()
             self.statusBar().showMessage(
                 f'일괄 추출 결과 · 완료 {len(result.completed)}개 · 실패 {len(result.errors)}개'+
-                (' · 취소됨' if result.cancelled else ''),15000)
+                (' · 취소됨' if result.cancelled else '') +
+                (' · 하위 프로세스 오류' if result.worker_error else ''),15000)
             detail=('\n'.join(result.completed[:5]) + ('\n…' if len(result.completed)>5 else ''))
             failures='\n'.join(f'{Path(name).name}: {error}' for name,error in result.errors[:8])
             summary=(f'저장 완료: {len(result.completed)}개\n실패: {len(result.errors)}개'
                      +('\n사용자가 중단한 작업입니다.' if result.cancelled else '')
+                     +(f'\n\n하위 프로세스 오류: {result.worker_error}\n확인된 완료만 복구했습니다. 미완료 작업은 재실행에서 확인하세요.'
+                       if result.worker_error else '')
                      +(f'\n\n완료된 파일:\n{detail}' if detail else '')
                      +(f'\n\n실패 항목:\n{failures}' if failures else ''))
-            if result.errors:
+            if result.errors or result.worker_error:
                 QMessageBox.warning(self,'일괄 도면 출력 결과',summary)
             elif result.cancelled or not result.completed:
                 QMessageBox.information(self,'일괄 도면 출력 결과',summary)

@@ -9,7 +9,7 @@ import stat
 import tempfile
 
 from .core import DrawingError, OutputOptions, verify_source
-from .batch import ExportJob
+from .batch import ExportJob, checked_output_parent, confirmed_output
 
 MAX_FILES = 1000
 MAX_ENTRIES = 100_000
@@ -76,7 +76,7 @@ class BatchSession:
 
     def record(self, attempted, result=None, error=''):
         self.attempts += 1
-        self.worker_error = str(error)
+        self.worker_error = str(error or (result.worker_error if result is not None else ""))[:20000]
         allowed = {j.target for j in attempted}
         for target in allowed:
             self._errors.pop(target, None)
@@ -86,7 +86,7 @@ class BatchSession:
         # A worker acknowledgement alone is insufficient if the file vanished or
         # a junction/symlink was substituted before the GUI handled the result.
         for target in result.completed:
-            if target in allowed and os.path.isfile(target) and not os.path.islink(target):
+            if target in allowed and confirmed_output(target):
                 self._completed.add(target)
         by_target = {j.target: j.target for j in attempted}
         # Legacy worker replies can use basenames, but they are ambiguous
@@ -105,7 +105,8 @@ class BatchSession:
                 target = by_name.get(name)
             if target is not None and target not in self._completed:
                 self._errors[target] = str(message)[:2000]
-        self.last_status = 'cancelled' if result.cancelled else 'errors' if result.errors else 'finished'
+        self.last_status = ('worker_error' if self.worker_error else 'cancelled' if result.cancelled
+                            else 'errors' if result.errors else 'finished')
 
     def retry_plan(self):
         eligible, blocked = [], []
@@ -119,10 +120,8 @@ class BatchSession:
                 if job.source_signature is None:
                     raise DrawingError('등록 원본 식별정보 없음')
                 verify_source(job.source, job.source_signature)
-                parent = Path(job.target).parent
-                if not parent.is_dir() or parent.resolve(strict=True) != parent:
-                    raise DrawingError('출력 폴더 없음 또는 경로 변경')
-            except (DrawingError, OSError, ValueError) as exc:
+                checked_output_parent(job.target)
+            except (DrawingError, OSError, ValueError, RuntimeError) as exc:
                 blocked.append((job.target, str(exc)))
                 continue
             eligible.append(job)

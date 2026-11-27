@@ -21,6 +21,7 @@ def _check(cancelled):
 def raster_stripes(page, width, height, *, edge=512, progress=None,
                    cancelled=None, transparent=False):
     """Assemble RGB or RGBA scanline strips from clipped page renders."""
+    _check(cancelled)
     channels = 4 if transparent else 3
     budget = 12_000_000  # bounded per-render allocation, not output file cap
     if width <= 0 or height <= 0 or width * channels > budget:
@@ -67,16 +68,24 @@ def raster_stripes(page, width, height, *, edge=512, progress=None,
             cx1, cy1 = min(width, x1+halo), min(height, y1+halo)
             clip = fitz.Rect(rect.x0 + cx0/xscale, rect.y0 + cy0/yscale,
                              rect.x0 + cx1/xscale, rect.y0 + cy1/yscale)
+            if display_list is not None:
+                try:
+                    pix = display_list.get_pixmap(matrix=matrix, clip=clip,
+                                                  colorspace=fitz.csRGB, alpha=transparent)
+                except (RuntimeError, ValueError, MemoryError):
+                    # Retry only this tile with the authoritative page and
+                    # disable the failed acceleration for the rest of export.
+                    display_list = None
+                    _check(cancelled)
             if display_list is None:
                 pix = page.get_pixmap(matrix=matrix, clip=clip, colorspace=fitz.csRGB,
                                       alpha=transparent, annots=True)
-            else:
-                pix = display_list.get_pixmap(matrix=matrix, clip=clip,
-                                              colorspace=fitz.csRGB, alpha=transparent)
+            _check(cancelled)
             px0, py0 = pix.irect[0] - base.x0, pix.irect[1] - base.y0
             left, right = max(0, px0), min(width, px0 + pix.width)
             top, bottom = max(y0, py0), min(y1, py0 + pix.height)
             if right <= left or bottom <= top:
+                del pix
                 continue
             src = pix.samples_mv
             target = memoryview(stripe)
@@ -96,6 +105,7 @@ def raster_stripes(page, width, height, *, edge=512, progress=None,
                     target[j:j+count] = src[i:i+count]
             target.release()
             del src  # PyMuPDF owns and releases its cached samples view.
+            del pix  # release native pixel storage before the next allocation.
         yield y0, y1, stripe
         if progress: progress(y1 / height)
 

@@ -7,12 +7,12 @@ from pathlib import Path
 import sys
 
 try:
-    from build.sign_release import embedded_signer_certificates, signer_cn
+    from build.sign_release import embedded_signer_certificates, signer_cn, group_pin, require_group_signature
     from build.release_metadata import publish_bundle
     from build.pe_version import expected_version
     from build.functional_gate import read_functional_qa
 except ModuleNotFoundError:
-    from sign_release import embedded_signer_certificates, signer_cn
+    from sign_release import embedded_signer_certificates, signer_cn, group_pin, require_group_signature
     from release_metadata import publish_bundle
     from pe_version import expected_version
     from functional_gate import read_functional_qa
@@ -51,7 +51,12 @@ def publish(exe: Path, destination: Path) -> None:
                (not thumbprint or cert.fingerprint(hashes.SHA1()).hex().upper() == thumbprint)
                for cert in embedded_signer_certificates(exe)):
         raise RuntimeError('Sunrise Group embedded signing certificate does not match report.')
-    publish_bundle(exe, destination, sha256, report, digest, functional_qa=functional_qa)
+    pin = group_pin()
+    if pin:
+        require_group_signature(exe, report, pin)
+    elif report.get('group_certificate_pin_verified') is True:
+        raise RuntimeError('Group signing fingerprint must remain configured during publish.')
+    publish_bundle(exe, destination, sha256, report, digest, functional_qa=functional_qa, smoke=smoke)
     print('[PASS] Published signed onefile:', destination / exe.name)
     print('[PASS] SHA256:', sha256)
     print('[INFO] Signer trust:', report['trust'])

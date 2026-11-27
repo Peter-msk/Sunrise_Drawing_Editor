@@ -58,6 +58,44 @@ def check_crop(path, expected_size, color):
             expected.close()
 
 
+def check_alpha_crop(exe, root, originals, worker):
+    """Check the four independent PNG background/trim choices through the worker."""
+    import fitz
+    from PIL import Image, ImageDraw
+    source = root / 'alpha-crop.pdf'
+    with fitz.open() as doc:
+        page = doc.new_page(width=400, height=400)
+        keep = doc.add_ocg('Map', on=1)
+        hide = doc.add_ocg('Hide', on=1)
+        page.draw_rect(fitz.Rect(100, 100, 300, 300), color=None, fill=(0, 0, 1), oc=keep)
+        page.draw_rect(fitz.Rect(150, 150, 250, 250), color=None, fill=(1, 1, 1), oc=keep)
+        page.draw_rect(fitz.Rect(5, 5, 20, 20), color=None, fill=(1, 0, 0), oc=hide)
+        doc.save(source)
+    originals[source] = digest(source)
+    for transparent in (True, False):
+        for trim in (False, True):
+            name = f'alpha-{int(transparent)}-trim-{int(trim)}'
+            target = root / (name + '.png')
+            jobs = [{'source': str(source), 'states': {keep: True, hide: False},
+                     'page_index': 0, 'target': str(target)}]
+            worker(exe, root / name, jobs, {'fmt': 'png', 'resolution': 'custom',
+                   'width': 400, 'height': 400, 'background': 'transparent' if transparent else 'opaque',
+                   'crop_margins': trim})
+            mode = 'RGBA' if transparent else 'RGB'
+            bg = (0, 0, 0, 0) if transparent else (255, 255, 255)
+            blue = (0, 0, 255, 255) if transparent else (0, 0, 255)
+            white = (255, 255, 255, 255) if transparent else (255, 255, 255)
+            with Image.new(mode, (400, 400), bg) as canvas:
+                draw = ImageDraw.Draw(canvas)
+                draw.rectangle((100, 100, 299, 299), fill=blue)
+                draw.rectangle((150, 150, 249, 249), fill=white)
+                expected = canvas.crop((100, 100, 300, 300)) if trim else canvas.copy()
+                with expected, Image.open(target) as actual:
+                    require(actual.format == 'PNG' and actual.mode == mode and actual.size == expected.size,
+                            f'PNG alpha/trim geometry mismatch: {name}')
+                    require(actual.tobytes() == expected.tobytes(), f'PNG alpha/trim pixel mismatch: {name}')
+
+
 def exercise(exe, root, worker=run_batch):
     import fitz
     import ezdxf
@@ -89,6 +127,8 @@ def exercise(exe, root, worker=run_batch):
             require(im.format == 'JPEG' and im.size == (400, 400), 'Wrong JPG format or size')
             require(min(im.convert('RGB').getpixel((10, 10))) > 240, 'Hidden red OCG still visible')
     completed.append('four_pdf_jpg_hidden_ocg')
+    check_alpha_crop(exe, root, originals, worker)
+    completed.append('png_alpha_crop_independent_pixel_exact')
     source = root / 'layers.dxf'
     doc = ezdxf.new('R2013')
     doc.layers.new('ROAD')
@@ -97,7 +137,9 @@ def exercise(exe, root, worker=run_batch):
     doc.modelspace().add_circle((50, 50), 20, dxfattribs={'layer': 'WATER', 'color': 1})
     doc.saveas(source)
     originals[source] = digest(source)
-    cad = [{'source': str(source), 'states': {'ROAD': True, 'WATER': visible},
+    # Include default layers: R09's complete snapshot contract also applies to QA.
+    cad_states = {str(layer.dxf.name): not layer.is_off() and not layer.is_frozen() for layer in doc.layers}
+    cad = [{'source': str(source), 'states': dict(cad_states, ROAD=True, WATER=visible),
             'page_index': 0, 'target': str(root / f'cad-{visible}.png')} for visible in (True, False)]
     worker(exe, root / 'cad', cad, {'fmt': 'png', 'resolution': 'custom', 'width': 400, 'height': 400})
     with Image.open(cad[0]['target']) as x, Image.open(cad[1]['target']) as y:

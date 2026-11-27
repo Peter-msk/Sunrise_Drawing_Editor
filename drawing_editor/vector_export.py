@@ -8,6 +8,7 @@ import os
 import tempfile
 
 from .core import DrawingError, source_signature, verify_source
+from .ngii_watermark import separate_watermark
 
 VECTOR_FORMATS = frozenset(('pdf', 'svg', 'dxf'))
 DXF_SOURCE_LIMIT = 16 * 1024 * 1024
@@ -38,6 +39,7 @@ def _pdf_export(source, states, page_index, temporary, fmt, checkpoint):
         with fitz.open(str(source)) as pdf:
             if not pdf.is_pdf or pdf.needs_pass or not 0 <= page_index < pdf.page_count:
                 raise DrawingError('읽을 수 없는 PDF 또는 페이지입니다.')
+            separate_watermark(pdf)
             raw = pdf.get_ocgs() or {}
             original = {key: bool(value.get('on', True)) for key, value in raw.items()}
             config = pdf.get_layer() if raw else {}
